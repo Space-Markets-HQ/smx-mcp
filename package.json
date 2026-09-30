@@ -1,0 +1,59 @@
+{
+  "name": "smx-mcp",
+  "version": "0.1.0",
+  "mcpName": "space.smx/mcp",
+  "description": "MCP server for SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
+  "type": "module",
+  "bin": {
+    "smx-mcp": "dist/index.js"
+  },
+  "main": "dist/server.js",
+  "files": [
+    "dist",
+    "README.md",
+    "server.json",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p . && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node test/unit.mjs && node test/copy-check.mjs",
+    "smoke": "node test/smoke.mjs",
+    "smoke:http": "node test/smoke-http.mjs",
+    "prepublishOnly": "echo \"Publishing is disabled until Nick approves (see PUBLISHING.md)\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "smx",
+    "space-markets",
+    "smi",
+    "base-sepolia",
+    "x402",
+    "testnet"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "TBD (not pushed)"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "viem": "^2.57.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

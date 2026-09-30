@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "space.smx/mcp",
+  "title": "SMX by Space Markets (testnet)",
+  "description": "SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
+  "websiteUrl": "https://smx.space",
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "smx-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "X402_PRIVATE_KEY",
+          "description": "Optional. Your own Base Sepolia TEST wallet key holding Circle testnet USDC, used only by the paid tools ($0.01 testnet USDC per call, no real value). Never use a wallet with real funds.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SMX_RPC",
+          "description": "Optional Base Sepolia RPC URL (default https://sepolia.base.org).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
