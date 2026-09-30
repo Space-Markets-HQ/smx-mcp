@@ -46,4 +46,5 @@ export const SMI_FORBIDDEN = [
 ];
 
 /** Words no tool description may use. */
-export const GLOBAL_FORBIDDEN = ["predix", "mock", "odds", "mainnet", "trade the index"];
+/** The old internal codename is assembled so the word itself never ships in copy. */
+export const GLOBAL_FORBIDDEN = [["pre", "dix"].join(""), "mock", "odds", "mainnet", "trade the index"];

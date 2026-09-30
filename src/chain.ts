@@ -154,7 +154,7 @@ export async function bookDepth(book: Address, nextOrderId: number, maxScan = 40
 }
 
 /**
- * Unclaimed-fill check (ported from predix-test-agent/lib/unclaimed-fill-guard.mjs `unclaimedFills` / `guardCancel`).
+ * Unclaimed-fill check (ported from the SMX test agent unclaimed-fill guard, lib/unclaimed-fill-guard.mjs `unclaimedFills` / `guardCancel`).
  * v1 rule: a recorded fill is deleted by claim, so fills(orderId, n).filledQty > 0 means an unclaimed fill.
  * Read-only. There is no override: this server never cancels anything.
  */

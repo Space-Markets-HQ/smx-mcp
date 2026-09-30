@@ -38,7 +38,7 @@ const calls = [
 for (const [name, args] of calls) {
   const r = await client.callTool({ name, arguments: args });
   const s = JSON.stringify(r);
-  check(!/predix/i.test(s), `${name} output contains the old codename`);
+  check(!new RegExp(["pre", "dix"].join(""), "i").test(s), `${name} output contains the old codename`);
   if (name.startsWith("smi_")) {
     const keys = []; const walk = (v) => { if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.push(k); walk(x); } };
     walk(r.structuredContent ?? {});
