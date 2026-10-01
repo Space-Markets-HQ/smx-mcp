@@ -4,3 +4,7 @@ test/results/
 *.tgz
 .env
 .env.*
+TEST_REPORT*.md
+*.pem
+*.key
+install-id

@@ -42,7 +42,11 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "TBD (not pushed)"
+    "url": "git+https://github.com/Space-Markets-HQ/smx-mcp.git"
+  },
+  "homepage": "https://github.com/Space-Markets-HQ/smx-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Space-Markets-HQ/smx-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
