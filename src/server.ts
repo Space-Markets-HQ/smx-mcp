@@ -288,7 +288,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
         id: z.string().min(1).max(64).describe("Market id from smx_list_markets."),
         order_ids: z.array(z.number().int().nonnegative()).min(1).max(50).describe("Your order ids on that market's order book."),
       },
-      annotations: { ...RO, title: "SMX cancel safety check" },
+      annotations: { ...RO, title: "SMX unclaimed-fill check" },
     },
     async ({ id, order_ids }) => {
       try {
@@ -314,7 +314,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
           ...common(),
         };
         const msg = safe
-          ? `No unclaimed fills on order(s) ${order_ids.join(", ")} (checked batches 1-${batchNonce}). Safe to cancel under the claim-before-cancel rule.`
+          ? `No unclaimed fills found on order(s) ${order_ids.join(", ")} (checked batches 1-${batchNonce}). OK to cancel under the claim-before-cancel rule, based on this read of on-chain state at the time of the call. Provided as-is; verify before acting.`
           : fills.length
             ? `DO NOT CANCEL: ${fills.length} unclaimed fill(s).${claimable.length ? ` Claim first: ${data.claimFirst.join("; ")}.` : ""}${stranded.length ? ` ${stranded.length} fill(s) cannot be claimed in simulation (${stranded.map((f) => `order ${f.orderId} batch ${f.batchNonce}: ${f.claimSimulation}`).join("; ")}); report to SMX.` : ""}`
             : `DO NOT CANCEL yet: ${unreadable.length} fill check(s) could not be read; retry.`;

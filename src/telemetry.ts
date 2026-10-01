@@ -63,11 +63,24 @@ const toolCtx = new AsyncLocalStorage<{ tool: string }>();
 export const runWithTool = <T>(tool: string, fn: () => T): T => toolCtx.run({ tool }, fn);
 export const currentTool = () => toolCtx.getStore()?.tool ?? null;
 
-/** Headers for a request to `url`; empty unless the URL is on the SMX origin. */
+/** Hosts that may receive the headers: smx.space only. Loopback is allowed so the offline test can stand in for it;
+ *  it never leaves the machine. If SMX_ORIGIN points anywhere else, no X-SMX-* header is sent at all. */
+const TELEMETRY_HOSTS = new Set(["smx.space"]);
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+function telemetryOrigin(): string | null {
+  try {
+    const u = new URL(SMX_ORIGIN);
+    if ((u.protocol === "https:" && TELEMETRY_HOSTS.has(u.hostname)) || (u.protocol === "http:" && LOOPBACK.has(u.hostname))) return u.origin;
+  } catch { /* bad SMX_ORIGIN */ }
+  return null;
+}
+
+/** Headers for a request to `url`; empty unless the URL is on the SMX origin and that origin is smx.space. */
 export function smxHeaders(url: string): Record<string, string> {
   let origin: string;
   try { origin = new URL(url).origin; } catch { return {}; }
-  if (origin !== new URL(SMX_ORIGIN).origin) return {};
+  const allowed = telemetryOrigin();
+  if (!allowed || origin !== allowed) return {};
   const h: Record<string, string> = { "X-SMX-Client": CLIENT_HEADER };
   const id = installId();
   if (id) {
@@ -76,4 +89,19 @@ export function smxHeaders(url: string): Record<string, string> {
     if (t) h["X-SMX-Tool"] = t;
   }
   return h;
+}
+
+/**
+ * fetch that follows redirects itself (max 3 hops) and recomputes the X-SMX-* headers for every hop, so a redirect
+ * from smx.space to another host never carries them (fetch would otherwise forward custom headers across origins).
+ */
+export async function fetchSmx(f: typeof fetch, url: string, headers: Record<string, string>, init: RequestInit = {}): Promise<Response> {
+  let u = url;
+  for (let hop = 0; ; hop++) {
+    const r = await f(u, { ...init, redirect: "manual", headers: { ...headers, ...smxHeaders(u) } });
+    const loc = r.status >= 300 && r.status < 400 ? r.headers.get("location") : null;
+    if (!loc || hop >= 3) return r;
+    await r.body?.cancel().catch(() => {});
+    u = new URL(loc, u).toString();
+  }
 }

@@ -16,6 +16,10 @@ const seen = [];
 const echo = createServer((req, res) => {
   const h = Object.fromEntries(Object.entries(req.headers).filter(([k]) => k.startsWith("x-smx-")));
   seen.push({ port: req.socket.localPort, url: req.url, h, paid: Boolean(req.headers["payment-signature"]) });
+  if (req.url.startsWith("/smi/methodology.json")) { // redirect to another origin (the RPC stand-in): headers must not follow
+    res.writeHead(302, { location: `http://127.0.0.1:${rpcPort}/redirected` }).end();
+    return;
+  }
   if (req.url.startsWith("/smi-api/history")) {
     // A real-shaped x402 v2 challenge, so the client signs (locally, random key, no funds) and retries: the retry must
     // still carry the X-SMX headers and the payment signature. Nothing reaches a facilitator or the chain.
@@ -48,7 +52,7 @@ async function runStdio(env, calls) {
 const last = () => seen.filter((s) => s.port === port).at(-1);
 
 // 1. first run creates the id; headers present
-await runStdio({ ...baseEnv, X402_PRIVATE_KEY: generatePrivateKey() }, [["smi_get_latest", {}], ["smx_list_markets", {}], ["smi_get_history", {}]]);
+await runStdio({ ...baseEnv, X402_PRIVATE_KEY: generatePrivateKey() }, [["smi_get_latest", {}], ["smx_list_markets", {}], ["smi_get_history", {}], ["smi_get_methodology", {}]]);
 const idFile = join(cfg, "install-id");
 assert.ok(existsSync(idFile), "install-id file created");
 const id = readFileSync(idFile, "utf8").trim();
@@ -62,6 +66,18 @@ assert.equal(histPaid.length, 1, "x402 client signed and retried once with PAYME
 assert.deepEqual(histPaid[0].h, { "x-smx-client": "smx-mcp/0.1.0", "x-smx-install": id, "x-smx-tool": "smi_get_history" }, "paid retry keeps the X-SMX headers");
 assert.ok(seen.filter((s) => s.port === "rpc").length > 0, "RPC was contacted");
 assert.ok(seen.filter((s) => s.port === "rpc").every((s) => Object.keys(s.h).length === 0), "no X-SMX headers to the RPC");
+assert.ok(seen.some((s) => s.port === "rpc" && s.url === "/redirected" && Object.keys(s.h).length === 0), "cross-origin redirect followed without X-SMX headers");
+assert.ok(seen.some((s) => s.url === "/smi/methodology.json" && s.h["x-smx-tool"] === "smi_get_methodology"), "the smx origin hop itself carries them");
+// 1b. host rule in-process: only smx.space (or loopback for this test) ever gets the headers
+for (const [origin, url, want] of [[undefined, "https://smx.space/smi-api/latest", true], [undefined, "https://sepolia.base.org/", false], [undefined, "https://smx.space.evil.example/x", false],
+  ["https://evil.example", "https://evil.example/smi-api/latest", false], ["http://smx.space", "http://smx.space/x", false]]) {
+  const out = await new Promise((r) => {
+    const env = { ...process.env, SMX_MCP_CONFIG_DIR: cfg }; delete env.SMX_ORIGIN; if (origin) env.SMX_ORIGIN = origin;
+    const p = spawn(process.execPath, ["--input-type=module", "-e", `const { smxHeaders } = await import("./dist/telemetry.js"); console.log(JSON.stringify(smxHeaders(${JSON.stringify(url)})))`], { env });
+    let o = ""; p.stdout.on("data", (d) => (o += d)); p.on("close", () => r(JSON.parse(o)));
+  });
+  assert.equal(Object.keys(out).length > 0, want, `headers for ${url} with SMX_ORIGIN=${origin ?? "(default)"}`);
+}
 // 2. second run reuses the id
 await runStdio(baseEnv, [["smi_get_latest", {}]]);
 assert.equal(last().h["x-smx-install"], id, "install id reused");

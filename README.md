@@ -92,26 +92,18 @@ Leave out `env` to use only the free tools.
 - **Claude Code:** `claude mcp add smx -- npx -y smx-mcp`
 - **MCP Inspector:** `npx @modelcontextprotocol/inspector node dist/index.js`
 
-## Usage counting (anonymous) and opt-out
+## Telemetry
+Requests to smx.space carry the headers X-SMX-Client (version), X-SMX-Install (a random install id stored in ~/.config/smx-mcp/install-id) and X-SMX-Tool (tool name). They are used only to count anonymous usage. Nothing is sent to any other host. Set SMX_MCP_TELEMETRY=0 to turn off the install id and tool name.
 
-To count installs and calls per tool, requests this server makes **to smx.space** (the SMI API and the SMX agent
-API) carry three headers. Nothing is sent to the Base Sepolia RPC or anywhere else, and chain-only tools send nothing.
+Details: the id file can also live in `$XDG_CONFIG_HOME/smx-mcp/` or `$SMX_MCP_CONFIG_DIR`; delete it to get a new id. Hosted
+HTTP mode (`--http`) uses one random id per server process, prefixed `hosted-`, and a per-process id prefixed
+`ephemeral-` is used if the file cannot be written. With `SMX_MCP_TELEMETRY=0` only `X-SMX-Client` is sent. The headers
+are added only when the request goes to https://smx.space: if `SMX_ORIGIN` points at another host they are not sent,
+and redirects are followed hop by hop so a redirect to another host never carries them. On the SMX side these values
+are logged next to a salted hash of the IP, never the raw IP.
 
-| Header | Value | Sent |
-|---|---|---|
-| `X-SMX-Client` | `smx-mcp/<version>` | always |
-| `X-SMX-Install` | random install id (UUID v4) | unless `SMX_MCP_TELEMETRY=0` |
-| `X-SMX-Tool` | the tool that made the request, e.g. `smi_get_latest` | unless `SMX_MCP_TELEMETRY=0` |
-
-- The install id is generated at random on first run and stored in `~/.config/smx-mcp/install-id`
-  (or `$XDG_CONFIG_HOME/smx-mcp/`, or `$SMX_MCP_CONFIG_DIR`). It contains no personal data and is not derived from
-  your machine, user name, wallet or IP. Delete the file to get a new id.
-- **Opt out:** set `SMX_MCP_TELEMETRY=0`. No id is created, read or sent, and the tool header is dropped; only
-  `X-SMX-Client` remains.
-- **Hosted HTTP mode** (`--http`) uses one random id per server process, prefixed `hosted-`, so callers of a hosted
-  server are never told apart.
-- If the id file cannot be written, a per-process id prefixed `ephemeral-` is used.
-- On the SMX side these values are logged next to a salted hash of the IP (never the raw IP), as for every request.
+## Licence and data
+The code is MIT-licensed. The MIT licence covers this code only, not the data it returns. SMI and SMX data come from smx.space under its published terms (SMI: https://smx.space/smi/terms/). GCAT data is CC BY 4.0, modified by Space Markets. Provided as-is, without warranty.
 
 ## Environment
 
