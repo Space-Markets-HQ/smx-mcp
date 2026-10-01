@@ -6,7 +6,7 @@ export const TESTNET_NOTICE =
 export const PAID_NOTICE =
   "Paid read: $0.01 in Circle testnet USDC on Base Sepolia via x402, testnet USDC, no real value. Paid from your own wallet key (X402_PRIVATE_KEY); this server never holds or bundles a key.";
 
-export const LIQUIDITY_NOTE = "Prices are thin. Most resting orders currently come from SMX's own test account.";
+export const LIQUIDITY_NOTE = "Quotes are thin. Most resting orders currently come from SMX's own test account.";
 
 export const NO_TRADING_NOTE =
   "This MCP server cannot place, cancel or claim orders and never resolves markets. Orders are signed by your own wallet on Base Sepolia; see smx_trading_guide.";

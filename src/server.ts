@@ -281,9 +281,9 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
   server.registerTool(
     "smx_check_cancel_safety",
     {
-      title: "SMX: check an order is safe to cancel",
+      title: "SMX: check an order for unclaimed fills",
       description:
-        "Before cancelling SMX testnet orders from your own wallet, check each order for unclaimed fills. Returns safeToCancel=false and the claim calls to make if any fill is unclaimed (cancelling it would forfeit the fill on the current contracts). Read-only; never cancels or claims. Free, no key.",
+        "Before cancelling SMX testnet orders from your own wallet, check each order for unclaimed fills. Returns safeToCancel=false and the claim calls to make if any fill is unclaimed (cancelling it would forfeit the fill on the current contracts). Read-only; never cancels or claims. Free, no key. Read-only check of on-chain state at the time of the call, provided as-is. Verify before acting.",
       inputSchema: {
         id: z.string().min(1).max(64).describe("Market id from smx_list_markets."),
         order_ids: z.array(z.number().int().nonnegative()).min(1).max(50).describe("Your order ids on that market's order book."),

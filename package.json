@@ -38,7 +38,7 @@
     "x402",
     "testnet"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",

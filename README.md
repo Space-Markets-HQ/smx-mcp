@@ -1,7 +1,7 @@
 # smx-mcp: SMX by Space Markets (testnet) MCP server
 
-MCP server for **SMX**, the Space Markets venue for humans and agents, and the **Space Markets Index (SMI)**,
-published by Space Markets, Inc. **Testnet only: Base Sepolia (chain id 84532).** Test tokens have no monetary value.
+MCP server for **SMX**, the Space Markets testnet venue for humans and agents, and the **Space Markets Index (SMI)**,
+published by Space Markets, Inc. SMX is operated by SMX Markets Ltd (BVI). **Testnet only: Base Sepolia (chain id 84532).** Test tokens have no monetary value.
 
 Two separate products, kept separate in every tool:
 
@@ -12,7 +12,7 @@ Two separate products, kept separate in every tool:
   the SMX agent API.
 
 This server **cannot place, cancel or claim orders and never resolves markets.** Orders are signed by your own wallet;
-`smx_trading_guide` returns the steps and `smx_check_cancel_safety` enforces the claim-before-cancel rule.
+`smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the claim-before-cancel rule.
 
 ## Tools
 
