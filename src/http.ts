@@ -7,6 +7,7 @@ import { createServer as createHttpServer, type IncomingMessage } from "node:htt
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "./server.js";
 import { SERVER_NAME, SERVER_VERSION } from "./config.js";
+import { useHostedInstallId } from "./telemetry.js";
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -22,6 +23,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 
 export function startHttp(port: number, host = "0.0.0.0") {
   const paidTools = process.env.SMX_MCP_HTTP_PAID === "1";
+  useHostedInstallId(); // one id per process, labelled hosted; callers are never told apart
   const srv = createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     res.setHeader("access-control-allow-origin", "*");

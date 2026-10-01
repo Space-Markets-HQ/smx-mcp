@@ -8,6 +8,7 @@ import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
 import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
 import { KEY_ENV_VARS, paidGet, payerKey } from "./x402.js";
+import { runWithTool } from "./telemetry.js";
 
 export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
@@ -101,6 +102,10 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
     { name: SERVER_NAME, title: SERVER_TITLE, version: SERVER_VERSION, websiteUrl: SMX_ORIGIN },
     { instructions: INSTRUCTIONS },
   );
+  // Every handler runs with its tool name in context, so outgoing SMX requests carry X-SMX-Tool.
+  const register = server.registerTool.bind(server);
+  (server as { registerTool: unknown }).registerTool = ((name: string, config: unknown, cb: (...a: unknown[]) => unknown) =>
+    register(name, config as never, ((...a: unknown[]) => runWithTool(name, () => cb(...a))) as never)) as never;
 
   // ---------------- SMI (free) ----------------
   server.registerTool(

@@ -8,6 +8,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 import { HTTP_TIMEOUT_MS, X402_EXPECT } from "./config.js";
 import { UA } from "./fetch.js";
+import { smxHeaders } from "./telemetry.js";
 
 export const KEY_ENV_VARS = ["X402_PRIVATE_KEY", "SMX_X402_PRIVATE_KEY"] as const;
 
@@ -59,7 +60,7 @@ export function payerAddress(): string | null {
 
 /** Decode the unpaid 402 challenge (no payment). Used to validate before paying and to explain costs. */
 export async function challenge(url: string): Promise<{ status: number; accepts: Req[]; body: unknown }> {
-  const r = await fetch(url, { headers: { accept: "application/json", "user-agent": UA }, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+  const r = await fetch(url, { headers: { accept: "application/json", "user-agent": UA, ...smxHeaders(url) }, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
   const text = await r.text();
   let body: unknown = text;
   try { body = JSON.parse(text); } catch { /* text */ }
@@ -81,7 +82,7 @@ export async function paidGet(url: string): Promise<PaidResult> {
     const why = pre.accepts.map((r) => requirementOk(r)).join("; ") || "no x402 v2 accepts in the challenge";
     throw new Error(`REFUSED: payment challenge does not match the expected testnet terms (${why}). Nothing was signed.`);
   }
-  const r = await c.fetch(url, { headers: { accept: "application/json", "user-agent": UA }, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS * 3) });
+  const r = await c.fetch(url, { headers: { accept: "application/json", "user-agent": UA, ...smxHeaders(url) }, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS * 3) });
   const text = await r.text();
   let body: unknown = text;
   try { body = JSON.parse(text); } catch { /* text */ }

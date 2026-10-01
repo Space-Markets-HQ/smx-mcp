@@ -92,6 +92,27 @@ Leave out `env` to use only the free tools.
 - **Claude Code:** `claude mcp add smx -- npx -y smx-mcp`
 - **MCP Inspector:** `npx @modelcontextprotocol/inspector node dist/index.js`
 
+## Usage counting (anonymous) and opt-out
+
+To count installs and calls per tool, requests this server makes **to smx.space** (the SMI API and the SMX agent
+API) carry three headers. Nothing is sent to the Base Sepolia RPC or anywhere else, and chain-only tools send nothing.
+
+| Header | Value | Sent |
+|---|---|---|
+| `X-SMX-Client` | `smx-mcp/<version>` | always |
+| `X-SMX-Install` | random install id (UUID v4) | unless `SMX_MCP_TELEMETRY=0` |
+| `X-SMX-Tool` | the tool that made the request, e.g. `smi_get_latest` | unless `SMX_MCP_TELEMETRY=0` |
+
+- The install id is generated at random on first run and stored in `~/.config/smx-mcp/install-id`
+  (or `$XDG_CONFIG_HOME/smx-mcp/`, or `$SMX_MCP_CONFIG_DIR`). It contains no personal data and is not derived from
+  your machine, user name, wallet or IP. Delete the file to get a new id.
+- **Opt out:** set `SMX_MCP_TELEMETRY=0`. No id is created, read or sent, and the tool header is dropped; only
+  `X-SMX-Client` remains.
+- **Hosted HTTP mode** (`--http`) uses one random id per server process, prefixed `hosted-`, so callers of a hosted
+  server are never told apart.
+- If the id file cannot be written, a per-process id prefixed `ephemeral-` is used.
+- On the SMX side these values are logged next to a salted hash of the IP (never the raw IP), as for every request.
+
 ## Environment
 
 | Variable | Default | Purpose |
@@ -100,6 +121,8 @@ Leave out `env` to use only the free tools.
 | `SMX_RPC` | `https://sepolia.base.org` | Base Sepolia RPC (chain id is checked; any other chain is refused) |
 | `SMX_ORIGIN` | `https://smx.space` | SMX origin for SMI and agent API reads |
 | `SMX_X402_MAX_ATOMIC` | `10000` | Per-call payment cap in atomic USDC units |
+| `SMX_MCP_TELEMETRY` | on | `0` drops the install id and tool header (see above) |
+| `SMX_MCP_CONFIG_DIR` | `~/.config/smx-mcp` | Where the install id is stored |
 | `SMX_MCP_HTTP_PAID` | unset | `1` enables paid tools over HTTP (private single-user deployments only) |
 | `PORT`, `HOST` | `8787`, `0.0.0.0` | HTTP mode |
 
@@ -108,7 +131,7 @@ Leave out `env` to use only the free tools.
 ```bash
 npm ci
 npm run build
-npm test              # offline unit checks + copy-rules check (free live reads, no payments)
+npm test              # unit checks, telemetry headers (local echo server), copy-rules check (free live reads, no payments)
 npm run smoke         # stdio client: every free tool against live endpoints
 npm run smoke:http    # HTTP transport: tools/list + two free calls; asserts paid tools are off
 node test/smoke.mjs --paid   # 2 paid calls ($0.02 testnet USDC) + one 404 that must not be charged

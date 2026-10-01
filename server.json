@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "space.smx/mcp",
+  "name": "io.github.space-markets-hq/smx-mcp",
   "title": "SMX by Space Markets (testnet)",
   "description": "SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
   "websiteUrl": "https://smx.space",
