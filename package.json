@@ -23,7 +23,7 @@
     "start:http": "node dist/index.js --http",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "node test/unit.mjs && node test/telemetry.mjs && node test/copy-check.mjs",
+    "test": "node test/unit.mjs && node test/telemetry.mjs && node test/copy-check.mjs && node test/read-only.mjs",
     "smoke": "node test/smoke.mjs",
     "smoke:http": "node test/smoke-http.mjs",
     "prepublishOnly": "echo \"Publishing is disabled until Nick approves (see PUBLISHING.md)\" && exit 1"
