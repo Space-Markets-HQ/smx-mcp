@@ -1,0 +1,27 @@
+# DRAFT, not deployed. Proposed Fly app for the hosted MCP endpoint (then proxied at https://smx.space/mcp).
+app = "smx-mcp"
+primary_region = "sjc"
+
+[build]
+
+[env]
+  PORT = "8080"
+  # Never set X402_PRIVATE_KEY or SMX_MCP_HTTP_PAID on a public deployment.
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
