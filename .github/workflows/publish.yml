@@ -1,0 +1,77 @@
+# Publishes smx-mcp to npm and to the MCP Registry (io.github.space-markets-hq/smx-mcp).
+#
+# OFF BY DEFAULT. It runs only when BOTH are true:
+#   1. a version tag matching v* is pushed (never on pull requests or pushes to main), and
+#   2. the repository variable PUBLISH_ENABLED is set to "true" (Settings > Secrets and variables > Actions > Variables).
+# It also needs the NPM_TOKEN repository secret, and package.json must no longer have "private": true or the
+# prepublishOnly guard (both are still in place on purpose; see PUBLISHING.md).
+# MCP Registry auth uses GitHub OIDC (mcp-publisher login github-oidc), so no registry secret is needed.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ vars.PUBLISH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC for the MCP Registry
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check tag matches package.json, server.json and mcpName
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          SRV_VERSION=$(node -p "require('./server.json').version")
+          SRV_PKG_VERSION=$(node -p "require('./server.json').packages[0].version")
+          MCP_NAME=$(node -p "require('./package.json').mcpName")
+          SRV_NAME=$(node -p "require('./server.json').name")
+          echo "tag=$TAG_VERSION package=$PKG_VERSION server=$SRV_VERSION server.packages[0]=$SRV_PKG_VERSION"
+          test "$TAG_VERSION" = "$PKG_VERSION"
+          test "$TAG_VERSION" = "$SRV_VERSION"
+          test "$TAG_VERSION" = "$SRV_PKG_VERSION"
+          test "$MCP_NAME" = "$SRV_NAME"
+          test "$MCP_NAME" = "io.github.space-markets-hq/smx-mcp"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --help >/dev/null
+
+      - name: Log in to the MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: ./mcp-publisher publish
