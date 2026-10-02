@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.space-markets-hq/smx-mcp",
+  "name": "io.github.Space-Markets-HQ/smx-mcp",
   "title": "SMX by Space Markets (testnet)",
   "description": "SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
   "websiteUrl": "https://smx.space",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "smx-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "runtimeHint": "npx",
       "transport": { "type": "stdio" },
       "environmentVariables": [

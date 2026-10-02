@@ -1,4 +1,4 @@
-# Publishes smx-mcp to npm and to the MCP Registry (io.github.space-markets-hq/smx-mcp).
+# Publishes smx-mcp to npm and to the MCP Registry (io.github.Space-Markets-HQ/smx-mcp).
 #
 # OFF BY DEFAULT. It runs only when BOTH are true:
 #   1. a version tag matching v* is pushed (never on pull requests or pushes to main), and
@@ -49,7 +49,7 @@ jobs:
           test "$TAG_VERSION" = "$SRV_VERSION"
           test "$TAG_VERSION" = "$SRV_PKG_VERSION"
           test "$MCP_NAME" = "$SRV_NAME"
-          test "$MCP_NAME" = "io.github.space-markets-hq/smx-mcp"
+          test "$MCP_NAME" = "io.github.Space-Markets-HQ/smx-mcp"
 
       - name: Install dependencies
         run: npm ci
