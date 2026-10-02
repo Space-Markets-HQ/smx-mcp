@@ -60,10 +60,31 @@ jobs:
       - name: Test
         run: npm test
 
+      # Idempotent: a re-run after a later step failed must not fail here on "cannot publish over
+      # the previously published version".
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "smx-mcp@$VERSION" version >/dev/null 2>&1; then
+            echo "smx-mcp@$VERSION is already on npm; skipping npm publish"
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The MCP Registry validates the npm package version; a fresh npm release can take a minute
+      # to be visible (v0.1.1 failed with "version '0.1.1' was not found (status: 404)").
+      - name: Wait for the npm version to be visible
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          for i in $(seq 1 30); do
+            if [ "$(npm view "smx-mcp@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "smx-mcp@$VERSION visible on npm"; exit 0
+            fi
+            echo "waiting for smx-mcp@$VERSION on npm ($i/30)"; sleep 10
+          done
+          echo "smx-mcp@$VERSION not visible on npm after 5 minutes"; exit 1
 
       - name: Install mcp-publisher
         run: |
@@ -74,4 +95,9 @@ jobs:
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to the MCP Registry
-        run: ./mcp-publisher publish
+        run: |
+          for i in 1 2 3 4 5; do
+            if ./mcp-publisher publish; then exit 0; fi
+            echo "registry publish attempt $i failed; retrying in 30s"; sleep 30
+          done
+          exit 1

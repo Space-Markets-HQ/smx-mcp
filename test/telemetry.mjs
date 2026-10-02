@@ -58,12 +58,12 @@ assert.ok(existsSync(idFile), "install-id file created");
 const id = readFileSync(idFile, "utf8").trim();
 assert.match(id, /^[0-9a-f-]{36}$/);
 const latest = seen.find((s) => s.url === "/smi-api/latest");
-assert.deepEqual(latest.h, { "x-smx-client": "smx-mcp/0.1.1", "x-smx-install": id, "x-smx-tool": "smi_get_latest" });
+assert.deepEqual(latest.h, { "x-smx-client": "smx-mcp/0.1.2", "x-smx-install": id, "x-smx-tool": "smi_get_latest" });
 const hist = seen.find((s) => s.url === "/smi-api/history");
 assert.equal(hist.h["x-smx-tool"], "smi_get_history", "paid preflight carries the tool header");
 const histPaid = seen.filter((s) => s.url === "/smi-api/history" && s.paid);
 assert.equal(histPaid.length, 1, "x402 client signed and retried once with PAYMENT-SIGNATURE");
-assert.deepEqual(histPaid[0].h, { "x-smx-client": "smx-mcp/0.1.1", "x-smx-install": id, "x-smx-tool": "smi_get_history" }, "paid retry keeps the X-SMX headers");
+assert.deepEqual(histPaid[0].h, { "x-smx-client": "smx-mcp/0.1.2", "x-smx-install": id, "x-smx-tool": "smi_get_history" }, "paid retry keeps the X-SMX headers");
 assert.ok(seen.filter((s) => s.port === "rpc").length > 0, "RPC was contacted");
 assert.ok(seen.filter((s) => s.port === "rpc").every((s) => Object.keys(s.h).length === 0), "no X-SMX headers to the RPC");
 assert.ok(seen.some((s) => s.port === "rpc" && s.url === "/redirected" && Object.keys(s.h).length === 0), "cross-origin redirect followed without X-SMX headers");
@@ -84,7 +84,7 @@ assert.equal(last().h["x-smx-install"], id, "install id reused");
 // 3. opt-out keeps only the client header, and never creates an id
 const cfg2 = mkdtempSync(join(tmpdir(), "smx-mcp-tel-"));
 await runStdio({ ...baseEnv, SMX_MCP_TELEMETRY: "0", SMX_MCP_CONFIG_DIR: cfg2 }, [["smi_get_latest", {}]]);
-assert.deepEqual(last().h, { "x-smx-client": "smx-mcp/0.1.1" });
+assert.deepEqual(last().h, { "x-smx-client": "smx-mcp/0.1.2" });
 assert.ok(!existsSync(join(cfg2, "install-id")), "opt-out creates no id file");
 // 4. hosted HTTP mode: per-process hosted id, same for two different callers
 const hp = 19000 + Math.floor(Math.random() * 1000);

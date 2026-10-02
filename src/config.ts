@@ -5,7 +5,7 @@
  */
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
-export const SERVER_VERSION = "0.1.1";
+export const SERVER_VERSION = "0.1.2";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
