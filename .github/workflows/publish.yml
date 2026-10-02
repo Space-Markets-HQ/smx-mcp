@@ -59,6 +59,9 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          # CI must not send an X-SMX-Install id to smx.space, or each run shows up as a new outside install.
+          SMX_MCP_TELEMETRY: "0"
 
       # Idempotent: a re-run after a later step failed must not fail here on "cannot publish over
       # the previously published version".
