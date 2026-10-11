@@ -9,7 +9,7 @@ export const PAID_NOTICE =
 export const LIQUIDITY_NOTE = "Quotes are thin. Most resting orders currently come from SMX's own test account.";
 
 export const NO_TRADING_NOTE =
-  "This MCP server cannot place, cancel or claim orders and never resolves markets. Orders are signed by your own wallet on Base Sepolia; see smx_trading_guide.";
+  "This MCP server never signs, sends or holds keys and never resolves markets. smx_build_order, smx_build_cancel and smx_build_claim (and perps_build_order) return UNSIGNED Base Sepolia transactions that you sign and send from your own wallet; see smx_trading_guide.";
 
 /** Stranded-fill rule (v1 contracts). Same rule as skill.md step 7 and the SMX unclaimed-fill guard. */
 export const STRANDED_FILL_RULE =

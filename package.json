@@ -1,6 +1,6 @@
 {
   "name": "smx-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "mcpName": "io.github.Space-Markets-HQ/smx-mcp",
   "description": "MCP server for SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
   "type": "module",
@@ -23,7 +23,8 @@
     "start:http": "node dist/index.js --http",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "node test/unit.mjs && node test/telemetry.mjs && node test/copy-check.mjs && node test/read-only.mjs",
+    "test": "node test/unit.mjs && node test/telemetry.mjs && node test/copy-check.mjs && node test/read-only.mjs && node test/trading.mjs && node test/write-tools.mjs",
+    "sim:write": "node test/write-sim.mjs",
     "smoke": "node test/smoke.mjs",
     "smoke:http": "node test/smoke-http.mjs"
   },

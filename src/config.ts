@@ -5,7 +5,7 @@
  */
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
-export const SERVER_VERSION = "0.1.2";
+export const SERVER_VERSION = "0.2.0";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
@@ -17,6 +17,8 @@ const env = (k: string) => process.env[k]?.trim() || undefined;
 export const SMX_ORIGIN = (env("SMX_ORIGIN") ?? "https://smx.space").replace(/\/$/, "");
 export const SMI_API_BASE = `${SMX_ORIGIN}/smi-api`;
 export const SMI_STATIC_BASE = `${SMX_ORIGIN}/smi`;
+/** Read-only SMX indexer (clears, trades, candles, 24h stats, depth, account orders). Free. */
+export const SMX_INDEXER = (env("SMX_INDEXER") ?? "https://smx-indexer-preview.fly.dev").replace(/\/$/, "");
 export const RPC_URL = env("SMX_RPC") ?? "https://sepolia.base.org";
 
 export const CONTRACTS = {

@@ -11,8 +11,10 @@ Two separate products, kept separate in every tool:
 - **SMX event markets** (`smx_*` tools): testnet markets priced in test USDC. Read from the Base Sepolia contracts and
   the SMX agent API.
 
-This server **cannot place, cancel or claim orders and never resolves markets.** Orders are signed by your own wallet;
-`smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the claim-before-cancel rule.
+This server **never signs, sends or holds keys and never resolves markets.** `smx_build_order`, `smx_build_cancel`,
+`smx_build_claim` and `perps_build_order` return UNSIGNED Base Sepolia transactions (`to`, `data`, `value`, `chainId`) that you
+sign and send from your own wallet. `smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the
+claim-before-cancel rule (`smx_build_cancel` adds the claims first automatically).
 
 ## Tools
 
@@ -43,6 +45,9 @@ amount at most 10000 atomic units ($0.01). Anything else is refused unsigned. Er
 
 Use a fresh **test** wallet (never one with real funds) and get Circle testnet USDC from https://faucet.circle.com
 (choose Base Sepolia).
+
+### Perps (testnet, Base Sepolia, MockUSDC)
+`perps_list_markets`, `perps_quote`, `perps_build_order`, `perps_positions`, `perps_account`. These proxy the SMX perps API (`SMX_PERPS_API`, default `https://smx-perps-preview.fly.dev/perps/v0`) and cover all markets on both engines, including PERP-XRAY and the countdowns. They return UNSIGNED transactions only, plus `reduce_only` status and machine-readable error `code`s. Sign them with your own wallet.
 
 ## Install
 

@@ -2,13 +2,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, unclaimedFills, type MarketRow } from "./chain.js";
-import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_ORIGIN } from "./config.js";
+import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
 import { LIQUIDITY_NOTE, NO_TRADING_NOTE, PAID_NOTICE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
 import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
 import { KEY_ENV_VARS, paidGet, payerKey } from "./x402.js";
 import { runWithTool } from "./telemetry.js";
+import { registerWriteTools } from "./write-tools.js";
+import { registerPerpsTools } from "./perps-tools.js";
+import { apiTrading, apiTradingAll, chainTrading, tradingRefusal, type Trading } from "./trading.js";
 
 export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
@@ -34,7 +37,7 @@ const PAID = { readOnlyHint: true, destructiveHint: false, idempotentHint: false
 
 const SMI_SECTIONS = ["launch_access", "compute_energy", "connectivity_data", "spectrum_filings", "moon_deep_space"] as const;
 
-function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000)) {
+function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), trading?: Trading | null) {
   const q = quoteOf(r.bestBid, r.bestAsk);
   const mid = midOf(r);
   return {
@@ -53,6 +56,8 @@ function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000)) {
     bestAskBps: isResolved(r) ? null : q.bestAskBps,
     minOrder: minOrderOf(r),
     resolutionDate: r.resolutionDate ? new Date(r.resolutionDate * 1000).toISOString() : null,
+    // open | closed | halted. Orders are refused unless open (SMX enforces close time and halts off-chain).
+    trading: trading ?? chainTrading(r, nowSec * 1000),
     orderBook: r.bookAddr,
     market: r.marketAddr,
     listed: r.listing.listed,
@@ -186,9 +191,10 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
         const nowSec = Math.floor(Date.now() / 1000);
         // Internal engineering markets are never shown, even with include_unlisted.
         const visible = rows.filter((r) => r.listing.listed || r.listing.excludedReason !== "internal-codename");
-        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec));
+        const trading = await apiTradingAll();
+        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId)));
         const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, source: `MarketRegistry ${CONTRACTS.marketRegistry} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
-        const line = markets.map((m) => `${m.id} (${m.status}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
+        const line = markets.map((m) => `${m.id} (${m.status}${m.trading.status !== "open" ? `, trading ${m.trading.status}` : ""}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
         return ok(`${markets.length} SMX testnet markets: ${line}.`, data);
       } catch (e) {
         return fail(`Chain read failed: ${errMsg(e)}`);
@@ -211,7 +217,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
         if (!r) return fail("Unknown market id. Call smx_list_markets for valid ids.");
         const depth = isResolved(r) || !r.nextOrderId ? { bids: [], asks: [], activeOrdersScanned: 0 } : await bookDepth(r.bookAddr, r.nextOrderId);
         const data = {
-          ...marketView(r),
+          ...marketView(r, undefined, await apiTrading(r.marketId)),
           book: {
             ...depth,
             batchNonce: r.batchNonce ?? null,
@@ -237,15 +243,27 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
     {
       title: "SMX: how to trade from your own wallet",
       description:
-        "How to place, cancel and claim SMX testnet orders from your own wallet on Base Sepolia. This server cannot trade; it returns the exact steps, contract addresses, order rules and the claim-before-cancel safety rule. Free, no key.",
+        "How to place, cancel and claim SMX testnet orders from your own wallet on Base Sepolia. This server never signs or sends: smx_build_order, smx_build_cancel and smx_build_claim return the unsigned transactions for you to sign; this guide returns the exact steps, contract addresses, order rules and the claim-before-cancel safety rule. Free, no key.",
       inputSchema: { id: z.string().max(64).optional().describe("Optional market id; fills in that market's order book address.") },
       annotations: { ...RO, openWorldHint: false, title: "SMX trading guide" },
     },
     async ({ id }) => {
       let orderBook: string | null = null;
       if (id) {
-        try { orderBook = (await findMarket(id))?.bookAddr ?? null; } catch { orderBook = null; }
+        // Trading cut-off first: a closed or halted market gets no order steps.
+        const api = await apiTrading(id);
+        if (api) {
+          const refused = tradingRefusal(id, api);
+          if (refused) return fail(`${refused.error}: ${refused.message}`, { ...refused });
+        }
+        let row: MarketRow | undefined;
+        try { row = await findMarket(id); } catch { row = undefined; }
+        orderBook = row?.bookAddr ?? null;
         if (!orderBook) return fail("Unknown market id. Call smx_list_markets for valid ids.");
+        if (!api) {
+          const refused = tradingRefusal(id, chainTrading(row));
+          if (refused) return fail(`${refused.error}: ${refused.message}`, { ...refused });
+        }
       }
       const data = {
         summary: NO_TRADING_NOTE,
@@ -272,6 +290,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
         tokens: "Order collateral is SMX test USDC (0x5882...c4E1). x402 paid reads use Circle testnet USDC (0x036C...CF7e). They are different tokens; neither has monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",
+        tradingCutoff: "Do not submit orders on a market whose trading.status is closed or halted (smx_get_market). Pass id here to check: closed or halted markets return market_closed / market_halted. Status: GET https://smx.space/agent/trading/{id}.",
         ...common(),
       };
       return ok(`Trade SMX testnet markets from your own wallet. ${STRANDED_FILL_RULE}`, data);
@@ -324,6 +343,46 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
       }
     },
   );
+
+  // ---------------- Unsigned write tools (event markets; shapes in write-tools.ts). Free; registered in every mode. ----------------
+  registerWriteTools(server, ok, fail);
+  registerPerpsTools(server, ok, fail);
+
+  // ---------------- SMX indexer (free, read-only) ----------------
+  const MID = z.string().regex(/^[A-Za-z0-9._#-]{1,64}$/).describe("Market id from smx_list_markets, e.g. moon-race-us-china-test-v2.");
+  const idx = async (path: string, summary: (b: any) => string) => {
+    try {
+      const { status, body } = await getJson(`${SMX_INDEXER}${path}`);
+      if (status !== 200) return fail(`SMX indexer returned ${status} for ${path}.`, { body });
+      return ok(summary(body), { ...(body as Record<string, unknown>), source: `${SMX_INDEXER}${path}`, ...common() });
+    } catch (e) { return fail(`SMX indexer read failed: ${errMsg(e)}`); }
+  };
+  const c = (p: number | null | undefined) => (p == null ? "n/a" : `${Math.round(p * 1000) / 10}c`);
+  server.registerTool("smx_get_book", {
+    title: "SMX: order book depth",
+    description: "Resting order book for one SMX testnet market, aggregated by price level (price 0-1 per share, qty in shares), read live from chain via the SMX indexer. bids = Buy Yes, asks = Sell Yes; noView gives the same book in No terms. Free, no key. Test USDC, no monetary value.",
+    inputSchema: { id: MID }, annotations: { ...RO, title: "SMX order book" },
+  }, async ({ id }) => idx(`/v1/markets/${encodeURIComponent(id)}/book`, (b) => `${id} book: best bid ${c(b.bestBid)}, best ask ${c(b.bestAsk)}, ${b.bids?.length ?? 0} bid / ${b.asks?.length ?? 0} ask levels, ${b.activeOrders} active orders.`));
+  server.registerTool("smx_get_clears", {
+    title: "SMX: trade history (batch clears)",
+    description: "Recent batch clears (trades) for one SMX testnet market, newest first: clear price (0-1), quantity in shares, notional in test USDC, time and tx hash. SMX is a frequent batch auction: everyone in a clear gets the same price. Free, no key.",
+    inputSchema: { id: MID, limit: z.number().int().min(1).max(1000).optional().describe("Max trades, default 100.") }, annotations: { ...RO, title: "SMX clears" },
+  }, async ({ id, limit }) => idx(`/v1/markets/${encodeURIComponent(id)}/trades?limit=${limit ?? 100}`, (b) => `${id}: ${b.trades?.length ?? 0} clears${b.trades?.[0] ? `, last ${c(b.trades[0].price)} x ${b.trades[0].qty} at ${b.trades[0].time}` : ""}.`));
+  server.registerTool("smx_get_candles", {
+    title: "SMX: price history candles",
+    description: "OHLC candles of clear prices (0-1) for one SMX testnet market. range 1D (1h candles), 1W (4h), 1M (1d) or all (1d). openPrice is the last clear before the window. Empty candles mean no clears in that window. Free, no key.",
+    inputSchema: { id: MID, range: z.enum(["1D", "1W", "1M", "all"]).optional().describe("Default 1D.") }, annotations: { ...RO, title: "SMX candles" },
+  }, async ({ id, range }) => idx(`/v1/markets/${encodeURIComponent(id)}/candles?range=${range ?? "1D"}`, (b) => `${id} ${b.range}: ${b.candles?.length ?? 0} candles.`));
+  server.registerTool("smx_get_stats", {
+    title: "SMX: 24h stats and open interest",
+    description: "24h stats for one SMX testnet market from indexed events: last clear price and time, 24h change, 24h volume (shares and test USDC), clears, open interest (shares), totals. Free, no key.",
+    inputSchema: { id: MID }, annotations: { ...RO, title: "SMX stats" },
+  }, async ({ id }) => idx(`/v1/markets/${encodeURIComponent(id)}/stats`, (b) => `${id}: last ${c(b.lastPrice)}, 24h vol ${b.volume24hShares} shares, OI ${b.openInterestShares} shares.`));
+  server.registerTool("smx_get_account_orders", {
+    title: "SMX: account open orders and history",
+    description: "Orders for an SMX trader across all testnet markets, matched by wallet (owner) or SMX Account contract address. history=false returns open and partially filled orders; history=true returns every order with fills, claims and cancels. Free, no key.",
+    inputSchema: { address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), history: z.boolean().optional() }, annotations: { ...RO, title: "SMX account orders" },
+  }, async ({ address, history }) => idx(`/v1/accounts/${address}/${history ? "history" : "orders"}`, (b) => `${b.orders?.length ?? 0} ${history ? "orders in history" : "open orders"} for ${address}.`));
 
   if (!opts.paidTools) return server;
 
@@ -404,6 +463,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
       return `SMX agent API midpoint for ${id}: ${m?.midBps ?? "?"} bps (${m?.midSource ?? "?"}).`;
     }, false),
   );
+
 
   return server;
 }

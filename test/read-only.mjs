@@ -20,7 +20,9 @@ assert.deepEqual(nonView.map((f) => f.name), ["claim"], `unexpected non-view ABI
 const claimUses = [...chain.matchAll(/functionName: "claim"/g)].length;
 const claimSim = [...chain.matchAll(/simulateContract\(\{[^}]*functionName: "claim"/g)].length;
 assert.equal(claimUses, claimSim, "OrderBook.claim is used outside simulateContract");
-for (const [f, src] of dist) assert.ok(!/submitOrder|cancelOrder|clearBatch|claimSettlement|resolve\(/.test(src.replace(/call: "[^"]*"|"[^"]*(submitOrder|cancelOrder|clearBatch|claimSettlement)[^"]*"/g, "")), `dist/${f} references a trading call outside guide text`);
+// order-build.js may ENCODE trading calls (unsigned calldata via encodeFunctionData) but never send them (WRITE check above).
+const BUILDER = new Set(["order-build.js", "write-tools.js"]);
+for (const [f, src] of dist) if (!BUILDER.has(f)) assert.ok(!/submitOrder|cancelOrder|clearBatch|claimSettlement|resolve\(/.test(src.replace(/call: "[^"]*"|"[^"]*(submitOrder|cancelOrder|clearBatch|claimSettlement)[^"]*"/g, "")), `dist/${f} references a trading call outside guide text`);
 
 delete process.env.X402_PRIVATE_KEY; delete process.env.SMX_X402_PRIVATE_KEY;
 const { createServer } = await import("../dist/server.js");
@@ -29,7 +31,11 @@ await createServer({ paidTools: true }).connect(a);
 const client = new Client({ name: "read-only-check", version: "0" });
 await client.connect(b);
 const { tools } = await client.listTools();
+const BUILD_TOOLS = new Set(["smx_build_order", "smx_build_cancel", "smx_build_claim", "perps_quote", "perps_build_order"]);
 for (const t of tools) {
+  const props0 = Object.keys(t.inputSchema?.properties ?? {});
+  assert.ok(!props0.some((p) => /private|key|signature|mnemonic/i.test(p)), `${t.name}: takes a secret`);
+  if (BUILD_TOOLS.has(t.name)) { assert.equal(t.annotations?.destructiveHint, false); continue; } // unsigned builders: see write-tools.mjs
   assert.ok(!/place|submit|cancel_order|order_create|claim_|resolve|trade|transfer|approve|deposit|withdraw/i.test(t.name), `${t.name}: looks like a write tool`);
   assert.equal(t.annotations?.readOnlyHint, true, `${t.name}: readOnlyHint`);
   assert.equal(t.annotations?.destructiveHint, false, `${t.name}: destructiveHint`);
@@ -37,4 +43,4 @@ for (const t of tools) {
   assert.ok(!props.some((p) => /side|qty|quantity|price|private|key|signature|amount/i.test(p)), `${t.name}: write-like input ${props}`);
 }
 await client.close();
-console.log(`read-only OK: ${tools.length} tools, ${abiFns.length} ABI functions (non-view: claim, simulate only), no write calls in dist/`);
+console.log(`read-only OK: ${tools.length} tools (3 unsigned builders), ${abiFns.length} ABI functions (non-view: claim, simulate only), no write calls in dist/`);
