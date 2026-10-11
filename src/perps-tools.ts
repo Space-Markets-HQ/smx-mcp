@@ -7,7 +7,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { getJson } from "./fetch.js";
+import { getJson, UA } from "./fetch.js";
+import { HTTP_TIMEOUT_MS } from "./config.js";
+import { fetchSmx } from "./telemetry.js";
 
 export const SMX_PERPS_API = (process.env.SMX_PERPS_API ?? "https://smx-perps-preview.fly.dev/perps/v0").replace(/\/$/, "");
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
@@ -17,8 +19,16 @@ type Ok = (s: string, d: Record<string, unknown>) => CallToolResult;
 type Fail = (t: string, e?: Record<string, unknown>) => CallToolResult;
 
 async function post(path: string, body: unknown): Promise<{ status: number; body: any }> {
-  const r = await fetch(`${SMX_PERPS_API}${path}`, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "smx-mcp" }, body: JSON.stringify(body) });
+  const r = await fetchSmx(fetch, `${SMX_PERPS_API}${path}`, { "content-type": "application/json", accept: "application/json", "user-agent": UA }, { method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
   return { status: r.status, body: await r.json().catch(() => ({ error: "bad json", code: "unavailable" })) };
+}
+
+/** Defence in depth: only pass through unsigned Base Sepolia txs {to, data, value, chainId}. */
+export function assertUnsigned(r: { status: number; body: any }) {
+  const txs = r.body?.transactions;
+  if (r.status !== 200 || !Array.isArray(txs)) return r;
+  const bad = txs.find((t: any) => !t || typeof t.to !== "string" || typeof t.data !== "string" || Number(t.chainId ?? 84532) !== 84532 || ["signature", "rawTransaction", "signedTransaction", "r", "s", "v", "privateKey"].some((k) => k in t));
+  return bad ? { status: 502, body: { error: "perps API returned a non-unsigned or non-Base-Sepolia transaction; refused", code: "unsafe_tx" } } : r;
 }
 
 export function registerPerpsTools(server: McpServer, ok: Ok, fail: Fail) {
@@ -51,7 +61,7 @@ export function registerPerpsTools(server: McpServer, ok: Ok, fail: Fail) {
       max_slippage_bps: z.number().int().min(0).max(500).optional(), position_id: z.number().int().min(0).optional(),
       close_size_musdc: z.number().min(0).optional(), amount_musdc: z.number().positive().max(10000).optional(), address: ADDR.optional(),
     },
-  }, async (a) => call(post("/order/build", a), (b) => `${b.transactions?.length} unsigned tx(s) for ${a.action}${a.market ? " " + a.market : ""}; expires ${b.expires_ts ?? "n/a"}.`));
+  }, async (a) => call(post("/order/build", a).then(assertUnsigned), (b) => `${b.transactions?.length} unsigned tx(s) for ${a.action}${a.market ? " " + a.market : ""}; expires ${b.expires_ts ?? "n/a"}.`));
 
   server.registerTool("perps_positions", {
     title: "SMX perps: positions", annotations: { ...RO, title: "SMX perps positions" },
