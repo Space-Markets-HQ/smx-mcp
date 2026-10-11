@@ -44,6 +44,9 @@ amount at most 10000 atomic units ($0.01). Anything else is refused unsigned. Er
 Use a fresh **test** wallet (never one with real funds) and get Circle testnet USDC from https://faucet.circle.com
 (choose Base Sepolia).
 
+### Perps (testnet, Base Sepolia, MockUSDC)
+`perps_list_markets`, `perps_quote`, `perps_build_order`, `perps_positions`, `perps_account`. These proxy the SMX perps API (`SMX_PERPS_API`, default `https://smx-perps-preview.fly.dev/perps/v0`) and cover all markets on both engines, including PERP-XRAY and the countdowns. They return UNSIGNED transactions only, plus `reduce_only` status and machine-readable error `code`s. Sign them with your own wallet.
+
 ## Install
 
 Requires Node.js 20+. Until the package is published, replace `npx -y smx-mcp` with
