@@ -11,8 +11,10 @@ Two separate products, kept separate in every tool:
 - **SMX event markets** (`smx_*` tools): testnet markets priced in test USDC. Read from the Base Sepolia contracts and
   the SMX agent API.
 
-This server **cannot place, cancel or claim orders and never resolves markets.** Orders are signed by your own wallet;
-`smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the claim-before-cancel rule.
+This server **never signs, sends or holds keys and never resolves markets.** `smx_build_order`, `smx_build_cancel`,
+`smx_build_claim` and `perps_build_order` return UNSIGNED Base Sepolia transactions (`to`, `data`, `value`, `chainId`) that you
+sign and send from your own wallet. `smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the
+claim-before-cancel rule (`smx_build_cancel` adds the claims first automatically).
 
 ## Tools
 
