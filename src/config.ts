@@ -17,6 +17,8 @@ const env = (k: string) => process.env[k]?.trim() || undefined;
 export const SMX_ORIGIN = (env("SMX_ORIGIN") ?? "https://smx.space").replace(/\/$/, "");
 export const SMI_API_BASE = `${SMX_ORIGIN}/smi-api`;
 export const SMI_STATIC_BASE = `${SMX_ORIGIN}/smi`;
+/** Read-only SMX indexer (clears, trades, candles, 24h stats, depth, account orders). Free. */
+export const SMX_INDEXER = (env("SMX_INDEXER") ?? "https://smx-indexer-preview.fly.dev").replace(/\/$/, "");
 export const RPC_URL = env("SMX_RPC") ?? "https://sepolia.base.org";
 
 export const CONTRACTS = {

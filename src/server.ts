@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, unclaimedFills, type MarketRow } from "./chain.js";
-import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_ORIGIN } from "./config.js";
+import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
 import { LIQUIDITY_NOTE, NO_TRADING_NOTE, PAID_NOTICE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
@@ -421,6 +421,42 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
       return `SMX agent API midpoint for ${id}: ${m?.midBps ?? "?"} bps (${m?.midSource ?? "?"}).`;
     }, false),
   );
+
+  // ---------------- SMX indexer (free, read-only) ----------------
+  const MID = z.string().regex(/^[A-Za-z0-9._#-]{1,64}$/).describe("Market id from smx_list_markets, e.g. moon-race-us-china-test-v2.");
+  const idx = async (path: string, summary: (b: any) => string) => {
+    try {
+      const { status, body } = await getJson(`${SMX_INDEXER}${path}`);
+      if (status !== 200) return fail(`SMX indexer returned ${status} for ${path}.`, { body });
+      return ok(summary(body), { ...(body as Record<string, unknown>), source: `${SMX_INDEXER}${path}`, ...common() });
+    } catch (e) { return fail(`SMX indexer read failed: ${errMsg(e)}`); }
+  };
+  const c = (p: number | null | undefined) => (p == null ? "n/a" : `${Math.round(p * 1000) / 10}c`);
+  server.registerTool("smx_get_book", {
+    title: "SMX: order book depth",
+    description: "Resting order book for one SMX testnet market, aggregated by price level (price 0-1 per share, qty in shares), read live from chain via the SMX indexer. bids = Buy Yes, asks = Sell Yes; noView gives the same book in No terms. Free, no key. Test USDC, no monetary value.",
+    inputSchema: { id: MID }, annotations: { ...RO, title: "SMX order book" },
+  }, async ({ id }) => idx(`/v1/markets/${encodeURIComponent(id)}/book`, (b) => `${id} book: best bid ${c(b.bestBid)}, best ask ${c(b.bestAsk)}, ${b.bids?.length ?? 0} bid / ${b.asks?.length ?? 0} ask levels, ${b.activeOrders} active orders.`));
+  server.registerTool("smx_get_clears", {
+    title: "SMX: trade history (batch clears)",
+    description: "Recent batch clears (trades) for one SMX testnet market, newest first: clear price (0-1), quantity in shares, notional in test USDC, time and tx hash. SMX is a frequent batch auction: everyone in a clear gets the same price. Free, no key.",
+    inputSchema: { id: MID, limit: z.number().int().min(1).max(1000).optional().describe("Max trades, default 100.") }, annotations: { ...RO, title: "SMX clears" },
+  }, async ({ id, limit }) => idx(`/v1/markets/${encodeURIComponent(id)}/trades?limit=${limit ?? 100}`, (b) => `${id}: ${b.trades?.length ?? 0} clears${b.trades?.[0] ? `, last ${c(b.trades[0].price)} x ${b.trades[0].qty} at ${b.trades[0].time}` : ""}.`));
+  server.registerTool("smx_get_candles", {
+    title: "SMX: price history candles",
+    description: "OHLC candles of clear prices (0-1) for one SMX testnet market. range 1D (1h candles), 1W (4h), 1M (1d) or all (1d). openPrice is the last clear before the window. Empty candles mean no clears in that window. Free, no key.",
+    inputSchema: { id: MID, range: z.enum(["1D", "1W", "1M", "all"]).optional().describe("Default 1D.") }, annotations: { ...RO, title: "SMX candles" },
+  }, async ({ id, range }) => idx(`/v1/markets/${encodeURIComponent(id)}/candles?range=${range ?? "1D"}`, (b) => `${id} ${b.range}: ${b.candles?.length ?? 0} candles.`));
+  server.registerTool("smx_get_stats", {
+    title: "SMX: 24h stats and open interest",
+    description: "24h stats for one SMX testnet market from indexed events: last clear price and time, 24h change, 24h volume (shares and test USDC), clears, open interest (shares), totals. Free, no key.",
+    inputSchema: { id: MID }, annotations: { ...RO, title: "SMX stats" },
+  }, async ({ id }) => idx(`/v1/markets/${encodeURIComponent(id)}/stats`, (b) => `${id}: last ${c(b.lastPrice)}, 24h vol ${b.volume24hShares} shares, OI ${b.openInterestShares} shares.`));
+  server.registerTool("smx_get_account_orders", {
+    title: "SMX: account open orders and history",
+    description: "Orders for an SMX trader across all testnet markets, matched by wallet (owner) or SMX Account contract address. history=false returns open and partially filled orders; history=true returns every order with fills, claims and cancels. Free, no key.",
+    inputSchema: { address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), history: z.boolean().optional() }, annotations: { ...RO, title: "SMX account orders" },
+  }, async ({ address, history }) => idx(`/v1/accounts/${address}/${history ? "history" : "orders"}`, (b) => `${b.orders?.length ?? 0} ${history ? "orders in history" : "open orders"} for ${address}.`));
 
   return server;
 }
