@@ -10,6 +10,7 @@ import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
 import { KEY_ENV_VARS, paidGet, payerKey } from "./x402.js";
 import { runWithTool } from "./telemetry.js";
 import { registerWriteTools } from "./write-tools.js";
+import { registerPerpsTools } from "./perps-tools.js";
 import { apiTrading, apiTradingAll, chainTrading, tradingRefusal, type Trading } from "./trading.js";
 
 export const INSTRUCTIONS = [
@@ -345,6 +346,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
 
   // ---------------- Unsigned write tools (event markets; shapes in write-tools.ts). Free; registered in every mode. ----------------
   registerWriteTools(server, ok, fail);
+  registerPerpsTools(server, ok, fail);
 
   // ---------------- SMX indexer (free, read-only) ----------------
   const MID = z.string().regex(/^[A-Za-z0-9._#-]{1,64}$/).describe("Market id from smx_list_markets, e.g. moon-race-us-china-test-v2.");
