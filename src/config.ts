@@ -1,7 +1,6 @@
 /**
  * SMX MCP server configuration. Base Sepolia (eip155:84532) testnet only.
- * Every value here is public (contract addresses, public URLs, the public x402 receiver).
- * No private keys are ever bundled: paid tools read the caller's own key from the environment.
+ * Every value here is public (contract addresses, public URLs). No keys are read or bundled; all tools are free.
  */
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
@@ -9,7 +8,6 @@ export const SERVER_VERSION = "0.2.0";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
-export const X402_NETWORK = "eip155:84532" as const;
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
@@ -25,16 +23,6 @@ export const CONTRACTS = {
   marketRegistry: "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
   factory: "0x409cFe0157aE3Ec2C321F97422a4bFc539c4b28a",
   testUsdcCollateral: "0x5882C96199e09771b01cFDC51eDea1D5814fc4E1",
-} as const;
-
-/** x402 payment expectations. A 402 challenge that differs from these is refused before signing. */
-export const X402_EXPECT = {
-  network: X402_NETWORK,
-  /** Circle USDC on Base Sepolia (testnet). */
-  asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-  payTo: (env("SMX_X402_PAY_TO") ?? "0x5799fe0715C04f479f7f80Fbe6C4CFb384A8E0e9").toLowerCase(),
-  /** Max atomic units per call (6 decimals): 10000 = $0.01 test USDC. */
-  maxAmountAtomic: BigInt(env("SMX_X402_MAX_ATOMIC") ?? "10000"),
 } as const;
 
 /** Display titles (titles are not stored on chain). Same table as the agent API. */

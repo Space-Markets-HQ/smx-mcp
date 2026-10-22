@@ -17,7 +17,7 @@ if (httpIdx !== -1) {
   const port = Number(args[httpIdx + 1] && !args[httpIdx + 1]!.startsWith("-") ? args[httpIdx + 1] : process.env.PORT || 8787);
   startHttp(port, process.env.HOST || "0.0.0.0");
 } else {
-  const server = createServer({ paidTools: true });
+  const server = createServer();
   await server.connect(new StdioServerTransport());
   console.error(`[${SERVER_NAME} ${SERVER_VERSION}] stdio ready`);
 }

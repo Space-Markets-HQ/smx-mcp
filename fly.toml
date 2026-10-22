@@ -6,7 +6,7 @@ primary_region = "sjc"
 
 [env]
   PORT = "8080"
-  # Never set X402_PRIVATE_KEY or SMX_MCP_HTTP_PAID on a public deployment.
+  # No secrets needed. Telemetry stays off unless SMX_MCP_TELEMETRY=1.
 
 [http_service]
   internal_port = 8080

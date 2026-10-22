@@ -2,7 +2,7 @@
   "name": "smx-mcp",
   "version": "0.2.0",
   "mcpName": "io.github.Space-Markets-HQ/smx-mcp",
-  "description": "MCP server for SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
+  "description": "MCP server for SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only. All tools free; no keys.",
   "type": "module",
   "bin": {
     "smx-mcp": "dist/index.js"
@@ -35,7 +35,6 @@
     "space-markets",
     "smi",
     "base-sepolia",
-    "x402",
     "testnet"
   ],
   "license": "MIT",
@@ -49,8 +48,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@x402/evm": "^2.28.0",
-    "@x402/fetch": "^2.28.0",
     "viem": "^2.57.1",
     "zod": "^4.6.5"
   },
@@ -58,5 +55,6 @@
     "@types/node": "^22.20.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  }
+  },
+  "author": "SMX Markets Ltd (BVI)"
 }

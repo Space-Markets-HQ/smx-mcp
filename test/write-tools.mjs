@@ -28,7 +28,7 @@ const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const { createServer } = await import("../dist/server.js");
 const [a, b] = InMemoryTransport.createLinkedPair();
-await createServer({ paidTools: false }).connect(a);
+await createServer().connect(a);
 const client = new Client({ name: "write-tools-check", version: "0" });
 await client.connect(b);
 const names = (await client.listTools()).tools.map((t) => t.name);

@@ -8,7 +8,7 @@ const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.j
 const { createServer } = await import("../dist/server.js");
 const pub = createPublicClient({ chain: baseSepolia, transport: http("https://sepolia.base.org") });
 const [a, b] = InMemoryTransport.createLinkedPair();
-await createServer({ paidTools: false }).connect(a);
+await createServer().connect(a);
 const c = new Client({ name: "perps-sim", version: "0" }); await c.connect(b);
 const W = process.env.SIM_WALLET ?? "0x7f07522a704233ac6Cf773f6301f60793Aeb0c07";
 const out = [];

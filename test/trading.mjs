@@ -34,7 +34,7 @@ globalThis.fetch = async (url, init) => {
 };
 
 const [a, b] = InMemoryTransport.createLinkedPair();
-await createServer({ paidTools: false }).connect(a);
+await createServer().connect(a);
 const client = new Client({ name: "trading-cutoff-check", version: "0" });
 await client.connect(b);
 

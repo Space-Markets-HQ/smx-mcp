@@ -1,10 +1,7 @@
 /** Fixed copy. Say SMX / Space Markets. SMI copy stays separate from SMX market copy. */
 
 export const TESTNET_NOTICE =
-  "Testnet only (Base Sepolia, chain id 84532). Test tokens have no monetary value and are not redeemable. Not affiliated with or endorsed by SpaceX.";
-
-export const PAID_NOTICE =
-  "Paid read: $0.01 in Circle testnet USDC on Base Sepolia via x402, testnet USDC, no real value. Paid from your own wallet key (X402_PRIVATE_KEY); this server never holds or bundles a key.";
+  "Testnet only (Base Sepolia, chain id 84532). Test tokens have no monetary value and are not redeemable. Not available to US persons or in restricted jurisdictions; see https://smx.space/terms.html. Not affiliated with or endorsed by SpaceX.";
 
 export const LIQUIDITY_NOTE = "Quotes are thin. Most resting orders currently come from SMX's own test account.";
 

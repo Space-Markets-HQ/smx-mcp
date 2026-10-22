@@ -3,11 +3,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, unclaimedFills, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
-import { LIQUIDITY_NOTE, NO_TRADING_NOTE, PAID_NOTICE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
+import { LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
 import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
-import { KEY_ENV_VARS, paidGet, payerKey } from "./x402.js";
 import { runWithTool } from "./telemetry.js";
 import { registerWriteTools } from "./write-tools.js";
 import { registerPerpsTools } from "./perps-tools.js";
@@ -17,7 +16,7 @@ export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
   "(1) Space Markets Index (SMI): information on orbital launch activity and other space-sector data, published by Space Markets, Inc. Tools start with smi_. SMI results contain no market prices.",
   "(2) SMX event markets: testnet markets priced in test USDC with no monetary value. Tools start with smx_.",
-  "Free tools need no key. Paid tools (smi_get_history, smi_get_launch, smi_get_print, smx_paid_*) cost $0.01 in Circle testnet USDC via x402, testnet USDC, no real value, paid from the user's own key in X402_PRIVATE_KEY.",
+  "All tools are free and need no key or account.",
   NO_TRADING_NOTE,
 ].join(" ");
 
@@ -33,7 +32,6 @@ function fail(text: string, extra: Record<string, unknown> = {}): CallToolResult
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 300);
 
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
-const PAID = { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true } as const;
 
 const SMI_SECTIONS = ["launch_access", "compute_energy", "connectivity_data", "spectrum_filings", "moon_deep_space"] as const;
 
@@ -69,40 +67,7 @@ async function findMarket(id: string): Promise<MarketRow | undefined> {
   return (await allMarkets()).find((r) => r.marketId === id && (r.listing.listed || r.listing.excludedReason !== "internal-codename"));
 }
 
-function noKey(tool: string): CallToolResult {
-  return fail(
-    `${tool} is a paid read and no wallet key is configured, so no call was made and nothing was charged. ` +
-      `Set ${KEY_ENV_VARS[0]} to a Base Sepolia TEST wallet private key that holds Circle testnet USDC (faucet: https://faucet.circle.com, choose Base Sepolia). ` +
-      `Cost: $0.01 testnet USDC per call, no real value. Never use a wallet that holds real funds.`,
-    { paid: true, priceUsd: "0.01", asset: "Circle testnet USDC on Base Sepolia", setup: `${KEY_ENV_VARS[0]}=0x<your testnet key>`, ...common() },
-  );
-}
-
-async function paid(tool: string, url: string, summarize: (body: unknown) => string, isSmi: boolean): Promise<CallToolResult> {
-  if (!payerKey()) return noKey(tool);
-  try {
-    const r = await paidGet(url);
-    const body = isSmi ? stripPrices(r.body) : r.body;
-    const data = {
-      ...(isSmi ? { product: "Space Markets Index (SMI)", ...smiFooter(r.body) } : { product: "SMX event markets" }),
-      httpStatus: r.status,
-      charged: r.charged,
-      payment: r.payment,
-      paidNotice: PAID_NOTICE,
-      data: body,
-      ...common(),
-    };
-    if (r.status >= 400) return fail(`${tool}: HTTP ${r.status}${r.charged ? "" : " (not charged)"}.`, data);
-    return ok(`${summarize(r.body)} ${r.charged ? "Charged $0.01 testnet USDC (no real value)." : "Not charged."}`, data);
-  } catch (e) {
-    const m = errMsg(e);
-    return fail(`${tool} failed: ${m}`, { charged: "unknown; check your wallet on https://sepolia.basescan.org", ...common() });
-  }
-}
-
-export type ServerOptions = { paidTools: boolean };
-
-export function createServer(opts: ServerOptions = { paidTools: true }): McpServer {
+export function createServer(): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: SERVER_TITLE, version: SERVER_VERSION, websiteUrl: SMX_ORIGIN },
     { instructions: INSTRUCTIONS },
@@ -287,7 +252,7 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
           fee: "0.25% x shares x (1 - price), charged at placement, refunded in full on cancel of an order with no fills",
         },
         contracts: { factory: CONTRACTS.factory, marketRegistry: CONTRACTS.marketRegistry, collateralToken: CONTRACTS.testUsdcCollateral, ...(orderBook ? { orderBook } : {}) },
-        tokens: "Order collateral is SMX test USDC (0x5882...c4E1). x402 paid reads use Circle testnet USDC (0x036C...CF7e). They are different tokens; neither has monetary value.",
+        tokens: "Order collateral is SMX test USDC (0x5882...c4E1). It has no monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",
         tradingCutoff: "Do not submit orders on a market whose trading.status is closed or halted (smx_get_market). Pass id here to check: closed or halted markets return market_closed / market_halted. Status: GET https://smx.space/agent/trading/{id}.",
@@ -383,87 +348,6 @@ export function createServer(opts: ServerOptions = { paidTools: true }): McpServ
     description: "Orders for an SMX trader across all testnet markets, matched by wallet (owner) or SMX Account contract address. history=false returns open and partially filled orders; history=true returns every order with fills, claims and cancels. Free, no key.",
     inputSchema: { address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), history: z.boolean().optional() }, annotations: { ...RO, title: "SMX account orders" },
   }, async ({ address, history }) => idx(`/v1/accounts/${address}/${history ? "history" : "orders"}`, (b) => `${b.orders?.length ?? 0} ${history ? "orders in history" : "open orders"} for ${address}.`));
-
-  if (!opts.paidTools) return server;
-
-  // ---------------- Paid reads (x402, testnet USDC) ----------------
-  const paidSuffix = " Paid: $0.01 in Circle testnet USDC on Base Sepolia via x402, testnet USDC, no real value, charged to your own wallet key in X402_PRIVATE_KEY (without it the tool makes no call). Errors (400/404) are not charged.";
-
-  server.registerTool(
-    "smi_get_history",
-    {
-      title: "SMI: weekly history (paid)",
-      description: `Space Markets Index (SMI), published by Space Markets, Inc.: weekly orbital launch counts for the year so far, with totals and GCAT attribution. Information only; contains no market prices.${paidSuffix}`,
-      inputSchema: {},
-      annotations: { ...PAID, title: "SMI history (paid)" },
-    },
-    async () => paid("smi_get_history", `${SMI_API_BASE}/history`, (b) => {
-      const t = (b as { totals?: Record<string, unknown>; print_id?: string }) ?? {};
-      return `SMI history (print ${t.print_id ?? "?"}): ${JSON.stringify(t.totals ?? {})}. Published by Space Markets, Inc.`;
-    }, true),
-  );
-
-  server.registerTool(
-    "smi_get_launch",
-    {
-      title: "SMI: one launch record (paid)",
-      description: `Space Markets Index (SMI), published by Space Markets, Inc.: one orbital launch by GCAT launch id (e.g. 2026-221): date, rocket, mission, agency, payloads and mass status. Information only.${paidSuffix}`,
-      inputSchema: { launch_id: z.string().regex(/^\d{4}-\d{3}$/).describe("GCAT launch id, e.g. 2026-221.") },
-      annotations: { ...PAID, title: "SMI launch (paid)" },
-    },
-    async ({ launch_id }) => paid("smi_get_launch", `${SMI_API_BASE}/launch/${encodeURIComponent(launch_id)}`, () => `SMI launch record ${launch_id}. Published by Space Markets, Inc.`, true),
-  );
-
-  server.registerTool(
-    "smi_get_print",
-    {
-      title: "SMI: one print (paid)",
-      description: `Space Markets Index (SMI), published by Space Markets, Inc.: one archived weekly print by print id (e.g. 2026-W39.r7). Information only; contains no market prices.${paidSuffix}`,
-      inputSchema: { print_id: z.string().regex(/^\d{4}-W\d{2}(\.r\d+)?$/).describe("Print id, e.g. 2026-W39.r7.") },
-      annotations: { ...PAID, title: "SMI print (paid)" },
-    },
-    async ({ print_id }) => paid("smi_get_print", `${SMI_API_BASE}/prints/${encodeURIComponent(print_id)}`, () => `SMI print ${print_id}. Published by Space Markets, Inc.`, true),
-  );
-
-  server.registerTool(
-    "smx_paid_list_markets",
-    {
-      title: "SMX: market list from the agent API (paid)",
-      description: `SMX agent API market list (GET /agent/markets): the listed SMX testnet markets with status, outcome, midpoint (midBps and midPriceCents) and minimum order, as served by the SMX agent API. Same data as smx_list_markets, which is free.${paidSuffix}`,
-      inputSchema: { all: z.boolean().optional().describe("Include unlisted registry markets with the reason (?all=1).") },
-      annotations: { ...PAID, title: "SMX market list (paid)" },
-    },
-    async ({ all }) => paid("smx_paid_list_markets", `${SMX_ORIGIN}/agent/markets${all ? "?all=1" : ""}`, (b) => {
-      const n = Array.isArray((b as { markets?: unknown[] })?.markets) ? (b as { markets: unknown[] }).markets.length : "?";
-      return `SMX agent API: ${n} markets.`;
-    }, false),
-  );
-
-  server.registerTool(
-    "smx_paid_get_market",
-    {
-      title: "SMX: market detail from the agent API (paid)",
-      description: `SMX agent API market detail (GET /agent/markets/{id}): status, outcome, midpoint, minimum order and a book summary for one SMX testnet market.${paidSuffix}`,
-      inputSchema: { id: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).describe("Market id from smx_list_markets.") },
-      annotations: { ...PAID, title: "SMX market detail (paid)" },
-    },
-    async ({ id }) => paid("smx_paid_get_market", `${SMX_ORIGIN}/agent/markets/${encodeURIComponent(id)}`, () => `SMX agent API detail for ${id}.`, false),
-  );
-
-  server.registerTool(
-    "smx_paid_get_mid",
-    {
-      title: "SMX: market midpoint from the agent API (paid)",
-      description: `SMX agent API midpoint (GET /v1/markets/{id}/mid) for one SMX testnet market: midBps (5000 = 50 cents), midPriceCents, source and status. Note: the legacy field midCents is in basis points.${paidSuffix}`,
-      inputSchema: { id: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).describe("Market id from smx_list_markets.") },
-      annotations: { ...PAID, title: "SMX midpoint (paid)" },
-    },
-    async ({ id }) => paid("smx_paid_get_mid", `${SMX_ORIGIN}/v1/markets/${encodeURIComponent(id)}/mid`, (b) => {
-      const m = b as { midBps?: number; midSource?: string };
-      return `SMX agent API midpoint for ${id}: ${m?.midBps ?? "?"} bps (${m?.midSource ?? "?"}).`;
-    }, false),
-  );
-
 
   return server;
 }

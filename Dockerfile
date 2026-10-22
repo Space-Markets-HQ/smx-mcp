@@ -1,4 +1,4 @@
-# Streamable HTTP deployment (draft; not deployed). Paid tools stay OFF over HTTP (SMX_MCP_HTTP_PAID unset).
+# Streamable HTTP deployment (draft; not deployed). All tools are free; no keys are read.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./

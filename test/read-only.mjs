@@ -1,7 +1,7 @@
 // Offline read-only guarantee (CI-able, no network): no tool can place, cancel or claim orders, or send any transaction.
 // 1) The built code never creates a wallet client or calls a write/send method.
 // 2) Every contract ABI function is a view, except OrderBook.claim, which is only ever passed to simulateContract (eth_call).
-// 3) The only signing is the x402 payment authorization for paid reads (user's own key, Base Sepolia, $0.01 cap; see unit.mjs).
+// 3) Nothing is signed: no tool reads a key (all tools are free).
 // 4) No tool name or input schema accepts an order, side, price/qty to submit, or a private key.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -24,10 +24,9 @@ assert.equal(claimUses, claimSim, "OrderBook.claim is used outside simulateContr
 const BUILDER = new Set(["order-build.js", "write-tools.js"]);
 for (const [f, src] of dist) if (!BUILDER.has(f)) assert.ok(!/submitOrder|cancelOrder|clearBatch|claimSettlement|resolve\(/.test(src.replace(/call: "[^"]*"|"[^"]*(submitOrder|cancelOrder|clearBatch|claimSettlement)[^"]*"/g, "")), `dist/${f} references a trading call outside guide text`);
 
-delete process.env.X402_PRIVATE_KEY; delete process.env.SMX_X402_PRIVATE_KEY;
 const { createServer } = await import("../dist/server.js");
 const [a, b] = InMemoryTransport.createLinkedPair();
-await createServer({ paidTools: true }).connect(a);
+await createServer().connect(a);
 const client = new Client({ name: "read-only-check", version: "0" });
 await client.connect(b);
 const { tools } = await client.listTools();
