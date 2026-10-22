@@ -31,7 +31,7 @@ await createServer({ paidTools: true }).connect(a);
 const client = new Client({ name: "read-only-check", version: "0" });
 await client.connect(b);
 const { tools } = await client.listTools();
-const BUILD_TOOLS = new Set(["smx_build_order", "smx_build_cancel", "smx_build_claim", "perps_quote", "perps_build_order"]);
+const BUILD_TOOLS = new Set(["smx_build_order", "smx_build_cancel", "smx_build_claim"]);
 for (const t of tools) {
   const props0 = Object.keys(t.inputSchema?.properties ?? {});
   assert.ok(!props0.some((p) => /private|key|signature|mnemonic/i.test(p)), `${t.name}: takes a secret`);
