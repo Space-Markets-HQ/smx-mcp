@@ -1,7 +1,7 @@
 # smx-mcp: SMX by Space Markets (testnet) MCP server
 
 MCP server for **SMX**, the Space Markets testnet venue for humans and agents, and the **Space Markets Index (SMI)**,
-published by Space Markets, Inc. SMX is operated by SMX Markets Ltd (BVI), the publisher of this package. **Testnet only: Base Sepolia (chain id 84532).** Test tokens have no monetary value.
+published by Space Markets, Inc. Space Markets, Inc. is the publisher of this package; SMX is operated by SMX Markets Ltd (BVI). **Testnet only: Base Sepolia (chain id 84532).** Test tokens have no monetary value.
 All tools are free and need no key or account. Not available to US persons or in restricted jurisdictions.
 
 **Terms of Service:** https://smx.space/terms.html · **Privacy policy:** not yet published (see Licence and data)
@@ -108,7 +108,7 @@ are logged next to a salted hash of the IP, never the raw IP.
 ## Licence and data
 The code is MIT-licensed. The MIT licence covers this code only, not the data it returns. SMI and SMX data come from smx.space under its published terms (SMI: https://smx.space/smi/terms/). GCAT data is CC BY 4.0, modified by Space Markets. Provided as-is, without warranty. Not affiliated with or endorsed by SpaceX.
 
-Publisher: SMX Markets Ltd (BVI). Terms of Service: https://smx.space/terms.html (currently the SMX testnet notice). Privacy policy: not yet published; a link will be added here before listing. Use of SMX is not available to US persons or in restricted jurisdictions.
+Publisher: Space Markets, Inc. Terms of Service: https://smx.space/terms.html (currently the SMX testnet notice). Privacy policy: not yet published; a link will be added here before listing. Use of SMX is not available to US persons or in restricted jurisdictions.
 
 ## Environment
 
