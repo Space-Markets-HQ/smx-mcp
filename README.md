@@ -94,6 +94,21 @@ Leave out `env` to use only the free tools.
 - **Claude Code:** `claude mcp add smx -- npx -y smx-mcp`
 - **MCP Inspector:** `npx @modelcontextprotocol/inspector node dist/index.js`
 
+## Network endpoints and credentials
+
+This server makes outbound HTTPS calls only to:
+
+| Endpoint | Used for |
+|---|---|
+| `https://smx.space` (SMI API, agent API, x402 paid reads) | market, trading-status and SMI data; carries the telemetry headers below |
+| `https://smx-indexer-preview.fly.dev` | order book, clears, candles, stats, account orders (testnet indexer) |
+| `https://sepolia.base.org` (Base Sepolia public RPC) | read-only contract calls for market state and unsigned order building |
+
+Credentials: none for free tools. Optional `X402_PRIVATE_KEY` (a fresh Base Sepolia **test** wallet) is read only to sign
+x402 payments for paid tools, locally; the key is never sent anywhere. Order tools return UNSIGNED transactions; the
+server never signs, sends or stores trading keys. No install scripts, no shell execution, no file access beyond
+`~/.config/smx-mcp/install-id`.
+
 ## Telemetry
 Requests to smx.space carry the headers X-SMX-Client (version), X-SMX-Install (a random install id stored in ~/.config/smx-mcp/install-id) and X-SMX-Tool (tool name). They are used only to count anonymous usage. Nothing is sent to any other host. Set SMX_MCP_TELEMETRY=0 to turn off the install id and tool name.
 
