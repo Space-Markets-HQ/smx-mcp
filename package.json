@@ -1,6 +1,6 @@
 {
   "name": "smx-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.Space-Markets-HQ/smx-mcp",
   "description": "MCP server for SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only. All tools free; no keys.",
   "type": "module",

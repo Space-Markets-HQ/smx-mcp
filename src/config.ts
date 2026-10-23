@@ -4,7 +4,7 @@
  */
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.2.1";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
@@ -27,6 +27,11 @@ export const CONTRACTS = {
   marketRegistries: (env("SMX_REGISTRIES")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [
     "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
     "0xcD293b4B311845C023772CDd8738849E1a274AcD",
+  ]) as readonly string[],
+  /** Market ids hidden from listings (same default as the agent API). Override: SMX_HIDDEN_MARKETS (comma list; "" = hide none). */
+  hiddenMarketIds: (env("SMX_HIDDEN_MARKETS") !== undefined ? env("SMX_HIDDEN_MARKETS")!.split(",").map((s) => s.trim()).filter(Boolean) : [
+    "starship-reflight-mar27-test", "starship-reflight-jun27-test", "starship-reflight-dec27-test",
+    "starship-shipcatch-nov26-test", "starship-shipcatch-dec26-test", "starship-shipcatch-mar27-test",
   ]) as readonly string[],
   factory: "0x409cFe0157aE3Ec2C321F97422a4bFc539c4b28a",
   testUsdcCollateral: "0x5882C96199e09771b01cFDC51eDea1D5814fc4E1",

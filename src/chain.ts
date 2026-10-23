@@ -95,6 +95,7 @@ export async function allMarkets(): Promise<MarketRow[]> {
   const bRes = await multi(books.flatMap((b) => bFns.map((fn) => ({ address: b, abi: bookAbi, functionName: fn }))));
   const num = (v: unknown) => (v === undefined ? undefined : Number(v as bigint));
   const nowSec = Math.floor(Date.now() / 1000);
+  const hidden = new Set(CONTRACTS.hiddenMarketIds);
   const rows: Omit<MarketRow, "listing">[] = addrs.map((addr, i) => {
     const raw = (mRes[i * 4] as string) ?? "0x";
     const b = (k: number) => bRes[i * bFns.length + k];
@@ -121,7 +122,7 @@ export async function allMarkets(): Promise<MarketRow[]> {
       clearableAt: num(b(10)),
       title: MARKET_TITLES[marketId] ?? marketId,
     };
-  });
+  }).filter((r) => !hidden.has(r.marketId));
   const decisions = listingDecisions(rows, nowSec);
   const full = rows.map((r) => ({ ...r, listing: decisions.get(r.index) ?? { listed: true as const } }));
   cache = { at: Date.now(), rows: full };
