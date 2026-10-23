@@ -98,6 +98,9 @@ export function familyOf(id: string) {
   return m ? { family: m[1]!, version: Number(m[2]) } : { family: id, version: 1 };
 }
 
+/** Launch-book twins (v7/v8 on the second registry) are listed even before their first order. */
+export const LAUNCH_BOOK_ID = /^TEST-V[0-9]+-/;
+
 /** Same rules, same order as the agent API (see its docs/markets-listing.md). */
 export function listingDecisions(rows: ChainMarket[], nowSec: number): Map<number, ListingDecision> {
   const out = new Map<number, ListingDecision>();
@@ -111,7 +114,7 @@ export function listingDecisions(rows: ChainMarket[], nowSec: number): Map<numbe
       out.set(r.index, { listed: false, excludedReason: "internal-codename", detail: "internal engineering test market" });
     } else if (/drill/i.test(r.marketId)) {
       out.set(r.index, { listed: false, excludedReason: "drill", detail: "operational resolve drill" });
-    } else if (!isResolved(r) && r.nextOrderId === 0) {
+    } else if (!isResolved(r) && r.nextOrderId === 0 && !LAUNCH_BOOK_ID.test(r.marketId)) {
       out.set(r.index, { listed: false, excludedReason: "never-traded", detail: "no order has ever been placed on this book" });
     } else if (!isResolved(r) && r.resolutionDate && r.resolutionDate + STALE_UNRESOLVED_GRACE_SEC < nowSec) {
       out.set(r.index, { listed: false, excludedReason: "stale-unresolved", detail: "still Open more than 7 days after its resolution date" });

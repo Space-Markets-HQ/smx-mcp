@@ -17,10 +17,17 @@ export const SMI_API_BASE = `${SMX_ORIGIN}/smi-api`;
 export const SMI_STATIC_BASE = `${SMX_ORIGIN}/smi`;
 /** Read-only SMX indexer (clears, trades, candles, 24h stats, depth, account orders). Free. */
 export const SMX_INDEXER = (env("SMX_INDEXER") ?? "https://smx-indexer-preview.fly.dev").replace(/\/$/, "");
+/** SMX agent API base for trading status (GET /agent/trading). Defaults to the public SMX origin. */
+export const SMX_API = (env("SMX_API") ?? SMX_ORIGIN).replace(/\/$/, "");
 export const RPC_URL = env("SMX_RPC") ?? "https://sepolia.base.org";
 
 export const CONTRACTS = {
   marketRegistry: "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
+  /** All registries listed, old first; the second holds the v7/v8 launch-book twins. Override: SMX_REGISTRIES (comma list). */
+  marketRegistries: (env("SMX_REGISTRIES")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [
+    "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
+    "0xcD293b4B311845C023772CDd8738849E1a274AcD",
+  ]) as readonly string[],
   factory: "0x409cFe0157aE3Ec2C321F97422a4bFc539c4b28a",
   testUsdcCollateral: "0x5882C96199e09771b01cFDC51eDea1D5814fc4E1",
 } as const;

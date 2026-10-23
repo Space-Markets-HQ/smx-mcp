@@ -146,7 +146,7 @@ export function createServer(): McpServer {
     {
       title: "SMX: list markets",
       description:
-        "List SMX event markets on Base Sepolia testnet, read directly from the on-chain MarketRegistry with the same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents) and minimum order. Free, no key. Test USDC, no monetary value.",
+        "List SMX event markets on Base Sepolia testnet, read directly from the on-chain MarketRegistries (old and launch-book) with the same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents) and minimum order. Free, no key. Test USDC, no monetary value.",
       inputSchema: { include_unlisted: z.boolean().optional().describe("Also return drills, superseded versions and other unlisted registry entries, with the reason.") },
       annotations: { ...RO, title: "SMX markets" },
     },
@@ -158,7 +158,7 @@ export function createServer(): McpServer {
         const visible = rows.filter((r) => r.listing.listed || r.listing.excludedReason !== "internal-codename");
         const trading = await apiTradingAll();
         const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId)));
-        const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, source: `MarketRegistry ${CONTRACTS.marketRegistry} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
+        const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, source: `MarketRegistry ${CONTRACTS.marketRegistries.join(", ")} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
         const line = markets.map((m) => `${m.id} (${m.status}${m.trading.status !== "open" ? `, trading ${m.trading.status}` : ""}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
         return ok(`${markets.length} SMX testnet markets: ${line}.`, data);
       } catch (e) {
@@ -191,7 +191,7 @@ export function createServer(): McpServer {
             clearableAt: r.clearableAt ? new Date(r.clearableAt * 1000).toISOString() : null,
             priceUnits: "YES-terms basis points for both sides. Bids are YES buys; asks are YES sells, i.e. NO buys at 10000 minus the price.",
           },
-          contracts: { marketRegistry: CONTRACTS.marketRegistry, factory: CONTRACTS.factory, collateralToken: CONTRACTS.testUsdcCollateral, orderBook: r.bookAddr, market: r.marketAddr },
+          contracts: { marketRegistry: r.registry, factory: CONTRACTS.factory, collateralToken: CONTRACTS.testUsdcCollateral, orderBook: r.bookAddr, market: r.marketAddr },
           liquidityNote: LIQUIDITY_NOTE,
           links: { app: LINKS.app, skill: LINKS.skill, explorer: `${LINKS.explorer}/address/${r.bookAddr}` },
           ...common(),

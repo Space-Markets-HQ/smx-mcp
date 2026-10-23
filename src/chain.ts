@@ -46,6 +46,7 @@ export const bookAbi = parseAbi([
 export type MarketRow = ChainMarket & {
   marketAddr: Address;
   bookAddr: Address;
+  registry: Address;
   batchNonce?: number;
   activeOrderCount?: number;
   isCrossed?: boolean;
@@ -78,10 +79,15 @@ const CACHE_MS = 10_000;
 export async function allMarkets(): Promise<MarketRow[]> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.rows;
   await assertTestnet();
-  const count = Number(await pub.readContract({ address: CONTRACTS.marketRegistry, abi: registryAbi, functionName: "marketsCount" }));
-  const addrs = (await multi([...Array(count).keys()].map((i) => ({
-    address: CONTRACTS.marketRegistry, abi: registryAbi, functionName: "markets", args: [BigInt(i)],
-  })))) as Address[];
+  const addrs: Address[] = [];
+  const regOf: Address[] = [];
+  for (const reg of CONTRACTS.marketRegistries as readonly Address[]) {
+    const count = Number(await pub.readContract({ address: reg, abi: registryAbi, functionName: "marketsCount" }));
+    const got = (await multi([...Array(count).keys()].map((i) => ({
+      address: reg, abi: registryAbi, functionName: "markets", args: [BigInt(i)],
+    })))) as Address[];
+    for (const a of got) { addrs.push(a); regOf.push(reg); }
+  }
   const mFns = ["marketId", "orderBook", "state", "resolutionDate"] as const;
   const mRes = await multi(addrs.flatMap((a) => mFns.map((fn) => ({ address: a, abi: marketAbi, functionName: fn }))));
   const bFns = ["bestBid", "bestAsk", "resolved", "finalPrice", "minOrderQty", "minOrderCollateralRaw", "nextOrderId", "batchNonce", "activeOrderCount", "isCrossed", "clearableAt"] as const;
@@ -99,6 +105,7 @@ export async function allMarkets(): Promise<MarketRow[]> {
       idWellFormed: isCanonicalMarketId(raw),
       marketAddr: addr,
       bookAddr: books[i]!,
+      registry: regOf[i]!,
       state: num(mRes[i * 4 + 2]) ?? 0,
       resolutionDate: num(mRes[i * 4 + 3]) ?? 0,
       bestBid: num(b(0)) ?? 0,

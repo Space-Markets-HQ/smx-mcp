@@ -4,7 +4,7 @@
  * If the API cannot be reached, fall back to the chain: closed once resolved or at resolutionDate
  * (halt state unknown, reported as such).
  */
-import { SMX_ORIGIN } from "./config.js";
+import { SMX_API } from "./config.js";
 import { getJson } from "./fetch.js";
 
 export type TradingStatus = "open" | "closed" | "halted";
@@ -16,11 +16,13 @@ export type Trading = {
   source: "smx-api" | "chain (SMX API unreachable; halt state unknown)";
 };
 
-export const tradingUrl = (id?: string) => `${SMX_ORIGIN}/agent/trading${id ? `/${encodeURIComponent(id)}` : ""}`;
+export const tradingUrl = (id?: string) => `${SMX_API}/agent/trading${id ? `/${encodeURIComponent(id)}` : ""}`;
 
 function fromApi(b: unknown): Trading | null {
   if (!b || typeof b !== "object") return null;
   const j = b as Record<string, unknown>;
+  // "paused" (temporary admin pause) is reported by the API as not open; treat it as halted here.
+  if (j.status === "paused") return { status: "halted", open: false, closeAt: typeof j.closeAt === "string" ? j.closeAt : null, halted: { reason: "paused", haltedAt: String((j.paused as { pausedAt?: string } | null)?.pausedAt ?? "") }, source: "smx-api" };
   if (j.status !== "open" && j.status !== "closed" && j.status !== "halted") return null;
   const h = j.halted as Trading["halted"];
   return { status: j.status, open: j.status === "open", closeAt: typeof j.closeAt === "string" ? j.closeAt : null, halted: h && typeof h === "object" ? h : null, source: "smx-api" };
