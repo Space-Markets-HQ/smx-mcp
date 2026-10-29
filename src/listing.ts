@@ -98,8 +98,41 @@ export function familyOf(id: string) {
   return m ? { family: m[1]!, version: Number(m[2]) } : { family: id, version: 1 };
 }
 
-/** Launch-book twins (v7/v8 on the second registry) are listed even before their first order. */
+/** TEST-V books (v7/v8 on the second registry) are listed even before their first order. */
 export const LAUNCH_BOOK_ID = /^TEST-V[0-9]+-/;
+
+export type DedupableMarket = {
+  marketId: string;
+  registry: string;
+  index: number;
+  idWellFormed?: boolean;
+};
+
+/**
+ * One row per well-formed market id. `registryOrder` is oldest first; a later registry wins.
+ * Malformed ids are not merged (they are excluded later as malformed-id).
+ */
+export function dedupeMarkets<T extends DedupableMarket>(rows: readonly T[], registryOrder: readonly string[]): T[] {
+  const rank = new Map(registryOrder.map((a, i) => [a.toLowerCase(), i]));
+  const winner = new Map<string, T>();
+  for (const r of rows) {
+    if (r.idWellFormed === false || r.marketId.length === 0) continue;
+    const prev = winner.get(r.marketId);
+    if (!prev) { winner.set(r.marketId, r); continue; }
+    const pr = rank.get(prev.registry.toLowerCase()) ?? -1;
+    const rr = rank.get(r.registry.toLowerCase()) ?? -1;
+    if (rr > pr || (rr === pr && r.index >= prev.index)) winner.set(r.marketId, r);
+  }
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    if (r.idWellFormed === false || r.marketId.length === 0) { out.push(r); continue; }
+    if (winner.get(r.marketId) !== r || seen.has(r.marketId)) continue;
+    seen.add(r.marketId);
+    out.push(r);
+  }
+  return out;
+}
 
 /** Same rules, same order as the agent API (see its docs/markets-listing.md). */
 export function listingDecisions(rows: ChainMarket[], nowSec: number): Map<number, ListingDecision> {

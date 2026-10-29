@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { allMarkets, bookDepth, idBytes, unclaimedFills, type MarketRow } from "./chain.js";
+import { allMarkets, bookDepth, idBytes, pickMarket, registryReadStatus, unclaimedFills, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
 import { LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
@@ -15,7 +15,7 @@ import { apiTrading, apiTradingAll, chainTrading, tradingRefusal, type Trading }
 export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
   "(1) Space Markets Index (SMI): information on orbital launch activity and other space-sector data, published by Space Markets, Inc. Tools start with smi_. SMI results contain no market prices.",
-  "(2) SMX event markets: testnet markets priced in test USDC with no monetary value. Tools start with smx_.",
+  "(2) SMX event markets: live on testnet, priced in test USDC with no monetary value, read from every configured MarketRegistry. Tools start with smx_.",
   "All tools are free and need no key or account.",
   NO_TRADING_NOTE,
 ].join(" ");
@@ -58,13 +58,14 @@ function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), tradin
     trading: trading ?? chainTrading(r, nowSec * 1000),
     orderBook: r.bookAddr,
     market: r.marketAddr,
+    registry: r.registry,
     listed: r.listing.listed,
     ...(r.listing.listed ? {} : { excludedReason: r.listing.excludedReason, excludedDetail: r.listing.detail }),
   };
 }
 
 async function findMarket(id: string): Promise<MarketRow | undefined> {
-  return (await allMarkets()).find((r) => r.marketId === id && (r.listing.listed || r.listing.excludedReason !== "internal-codename"));
+  return pickMarket(await allMarkets(), id);
 }
 
 export function createServer(): McpServer {
@@ -146,7 +147,7 @@ export function createServer(): McpServer {
     {
       title: "SMX: list markets",
       description:
-        "List SMX event markets on Base Sepolia testnet, read directly from the on-chain MarketRegistries (old and launch-book) with the same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents) and minimum order. Free, no key. Test USDC, no monetary value.",
+        "List SMX event markets live on Base Sepolia testnet, read from every configured on-chain MarketRegistry (SMX_REGISTRIES) and de-duplicated by market id. Same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents) and minimum order. Free, no key. Test USDC, no monetary value.",
       inputSchema: { include_unlisted: z.boolean().optional().describe("Also return drills, superseded versions and other unlisted registry entries, with the reason.") },
       annotations: { ...RO, title: "SMX markets" },
     },
@@ -158,7 +159,8 @@ export function createServer(): McpServer {
         const visible = rows.filter((r) => r.listing.listed || r.listing.excludedReason !== "internal-codename");
         const trading = await apiTradingAll();
         const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId)));
-        const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, source: `MarketRegistry ${CONTRACTS.marketRegistries.join(", ")} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
+        const read = registryReadStatus();
+        const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, registries: read.registries, ...(read.errors.length ? { registryReadErrors: read.errors } : {}), source: `MarketRegistry ${read.registries.join(", ")} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
         const line = markets.map((m) => `${m.id} (${m.status}${m.trading.status !== "open" ? `, trading ${m.trading.status}` : ""}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
         return ok(`${markets.length} SMX testnet markets: ${line}.`, data);
       } catch (e) {
@@ -214,6 +216,7 @@ export function createServer(): McpServer {
     },
     async ({ id }) => {
       let orderBook: string | null = null;
+      let registry: string | null = null;
       if (id) {
         // Trading cut-off first: a closed or halted market gets no order steps.
         const api = await apiTrading(id);
@@ -224,6 +227,7 @@ export function createServer(): McpServer {
         let row: MarketRow | undefined;
         try { row = await findMarket(id); } catch { row = undefined; }
         orderBook = row?.bookAddr ?? null;
+        registry = row?.registry ?? null;
         if (!orderBook) return fail("Unknown market id. Call smx_list_markets for valid ids.");
         if (!api) {
           const refused = tradingRefusal(id, chainTrading(row));
@@ -251,7 +255,7 @@ export function createServer(): McpServer {
           minOrder: "shares x price >= 10000 (price in bps of the side you buy), so at least ceil(10000 / price) shares",
           fee: "0.25% x shares x (1 - price), charged at placement, refunded in full on cancel of an order with no fills",
         },
-        contracts: { factory: CONTRACTS.factory, marketRegistry: CONTRACTS.marketRegistry, collateralToken: CONTRACTS.testUsdcCollateral, ...(orderBook ? { orderBook } : {}) },
+        contracts: { factory: CONTRACTS.factory, marketRegistry: registry ?? CONTRACTS.marketRegistry, marketRegistries: CONTRACTS.marketRegistries, collateralToken: CONTRACTS.testUsdcCollateral, ...(orderBook ? { orderBook } : {}) },
         tokens: "Order collateral is SMX test USDC (0x5882...c4E1). It has no monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",

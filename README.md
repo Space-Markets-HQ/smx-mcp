@@ -25,7 +25,7 @@ claim-before-cancel rule (`smx_build_cancel` adds the claims first automatically
 |---|---|---|
 | `smi_get_latest` | free | Latest SMI print: headline (SMI Launch Cadence + formula) and a one-line summary per sub-index; `sub_index` returns one in full |
 | `smi_get_methodology` | free | SMI methodology: version, change log, conflicts statement, headline formula, counting rules |
-| `smx_list_markets` | free | SMX markets from the on-chain MarketRegistry (same listing rules as the agent API): state, status, outcome, bid/ask, YES midpoint, minimum order |
+| `smx_list_markets` | free | SMX markets live on testnet, read from every configured Base Sepolia MarketRegistry and de-duplicated by id (same listing rules as the agent API): state, status, outcome, bid/ask, YES midpoint, minimum order |
 | `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links |
 | `smx_trading_guide` | free | How to trade from your own wallet: steps, addresses, order rules, the claim-before-cancel rule |
 | `smx_check_cancel_safety` | free | Unclaimed-fill check for your order ids (`fills(orderId, n)` for every batch, plus a `claim` simulation). `safeToCancel=false` means do not cancel |
@@ -115,6 +115,7 @@ Publisher: Space Markets, Inc. Terms of Service: https://smx.space/terms.html (c
 | Variable | Default | Purpose |
 |---|---|---|
 | `SMX_RPC` | `https://sepolia.base.org` | Base Sepolia RPC (chain id is checked; any other chain is refused) |
+| `SMX_REGISTRIES` | the two Base Sepolia MarketRegistries | Comma-separated registry addresses to list, quote and trade. Markets are de-duplicated by id (a later registry wins). Live on testnet. |
 | `SMX_ORIGIN` | `https://smx.space` | SMX origin for SMI and agent API reads |
 | `SMX_MCP_TELEMETRY` | off | `1` opts in to the install id and tool header (see above) |
 | `SMX_MCP_CONFIG_DIR` | `~/.config/smx-mcp` | Where the install id is stored |

@@ -5,7 +5,7 @@
  * test USDC or a registry-listed OrderBook.
  */
 import { encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
-import { allMarkets, pub, type MarketRow } from "./chain.js";
+import { allMarkets, pickMarket, pub, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
 import { configuredClose } from "./closes.js";
 import { getJson } from "./fetch.js";
@@ -73,7 +73,7 @@ export function validateOrder(qty: number, priceCents: number): BuildError | nul
 }
 
 async function findRow(id: string): Promise<MarketRow | undefined> {
-  return (await allMarkets()).find((r) => r.marketId === id && (r.listing.listed || r.listing.excludedReason !== "internal-codename"));
+  return pickMarket(await allMarkets(), id);
 }
 
 /** Trading status for building orders: SMX API, else closes config, else chain. */

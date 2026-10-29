@@ -4,13 +4,13 @@
   "title": "SMX by Space Markets (testnet)",
   "description": "SMX (Space Markets) testnet event markets and the Space Markets Index (SMI). Base Sepolia only.",
   "websiteUrl": "https://smx.space",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "smx-mcp",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -19,6 +19,12 @@
         {
           "name": "SMX_RPC",
           "description": "Optional Base Sepolia RPC URL (default https://sepolia.base.org).",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SMX_REGISTRIES",
+          "description": "Optional comma-separated Base Sepolia MarketRegistry addresses. Default is the original registry plus 0xcD293b4B311845C023772CDd8738849E1a274AcD. Markets are de-duplicated by id. Live on testnet.",
           "isRequired": false,
           "isSecret": false
         },
