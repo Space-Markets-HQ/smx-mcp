@@ -2,9 +2,11 @@
  * SMX MCP server configuration. Base Sepolia (eip155:84532) testnet only.
  * Every value here is public (contract addresses, public URLs). No keys are read or bundled; all tools are free.
  */
+import { getAddress } from "viem";
+
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
-export const SERVER_VERSION = "0.2.1";
+export const SERVER_VERSION = "0.2.2";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
@@ -21,13 +23,41 @@ export const SMX_INDEXER = (env("SMX_INDEXER") ?? "https://smx-indexer-preview.f
 export const SMX_API = (env("SMX_API") ?? SMX_ORIGIN).replace(/\/$/, "");
 export const RPC_URL = env("SMX_RPC") ?? "https://sepolia.base.org";
 
+/** Base Sepolia MarketRegistries, old book first. The second holds the TEST-V7/V8 markets live on testnet. */
+export const DEFAULT_MARKET_REGISTRIES = [
+  "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
+  "0xcD293b4B311845C023772CDd8738849E1a274AcD",
+] as const;
+
+/**
+ * Comma-separated registry addresses (SMX_REGISTRIES). Invalid entries are dropped.
+ * Duplicate addresses collapse. An empty or all-invalid value keeps the defaults.
+ * Later entries win when the same market id is listed in more than one registry.
+ */
+export function parseRegistryList(raw: string | undefined, fallback: readonly string[] = DEFAULT_MARKET_REGISTRIES): string[] {
+  if (raw === undefined) return [...fallback];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(",")) {
+    const s = part.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(s)) continue;
+    let addr: string;
+    try { addr = getAddress(s); } catch { continue; }
+    const key = addr.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(addr);
+  }
+  return out.length ? out : [...fallback];
+}
+
+const marketRegistries = parseRegistryList(env("SMX_REGISTRIES"));
+
 export const CONTRACTS = {
-  marketRegistry: "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
-  /** All registries listed, old first; the second holds the v7/v8 launch-book twins. Override: SMX_REGISTRIES (comma list). */
-  marketRegistries: (env("SMX_REGISTRIES")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [
-    "0x8F3B0Ae76690ef0972aD3Cf9010797d266FcDa4a",
-    "0xcD293b4B311845C023772CDd8738849E1a274AcD",
-  ]) as readonly string[],
+  /** First configured registry. Kept for callers that display a single address. */
+  marketRegistry: marketRegistries[0] ?? DEFAULT_MARKET_REGISTRIES[0],
+  /** Every registry to list, quote and trade. Override: SMX_REGISTRIES (comma list). */
+  marketRegistries,
   /** Market ids hidden from listings (same default as the agent API). Override: SMX_HIDDEN_MARKETS (comma list; "" = hide none). */
   hiddenMarketIds: (env("SMX_HIDDEN_MARKETS") !== undefined ? env("SMX_HIDDEN_MARKETS")!.split(",").map((s) => s.trim()).filter(Boolean) : [
     "starship-reflight-mar27-test", "starship-reflight-jun27-test", "starship-reflight-dec27-test",

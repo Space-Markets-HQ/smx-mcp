@@ -5,6 +5,7 @@ import { CHAIN_ID, CONTRACTS, MARKET_TITLES, RPC_URL } from "./config.js";
 import {
   type ChainMarket,
   decodeMarketId,
+  dedupeMarkets,
   isCanonicalMarketId,
   listingDecisions,
   type ListingDecision,
@@ -72,41 +73,53 @@ export async function assertTestnet() {
   if (id !== CHAIN_ID) throw new Error(`RPC reports chain id ${id}; this server only reads Base Sepolia (84532).`);
 }
 
-let cache: { at: number; rows: MarketRow[] } | null = null;
+let cache: { at: number; rows: MarketRow[]; registries: string[]; errors: string[] } | null = null;
 const CACHE_MS = 10_000;
 
-/** Every registry market with its chain state and listing decision (same policy as GET /agent/markets). */
-export async function allMarkets(): Promise<MarketRow[]> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.rows;
-  await assertTestnet();
-  const addrs: Address[] = [];
-  const regOf: Address[] = [];
-  for (const reg of CONTRACTS.marketRegistries as readonly Address[]) {
-    const count = Number(await pub.readContract({ address: reg, abi: registryAbi, functionName: "marketsCount" }));
-    const got = (await multi([...Array(count).keys()].map((i) => ({
-      address: reg, abi: registryAbi, functionName: "markets", args: [BigInt(i)],
-    })))) as Address[];
-    for (const a of got) { addrs.push(a); regOf.push(reg); }
-  }
-  const mFns = ["marketId", "orderBook", "state", "resolutionDate"] as const;
+/** Registries successfully read by the last allMarkets() call, plus any per-registry failures. */
+export function registryReadStatus(): { registries: string[]; errors: string[] } {
+  return { registries: cache?.registries ?? [], errors: cache?.errors ?? [] };
+}
+
+/** Prefer the listed row when more than one visible row shares an id. */
+export function pickMarket(rows: MarketRow[], id: string): MarketRow | undefined {
+  const hits = rows.filter((r) => {
+    if (r.marketId !== id) return false;
+    if (r.listing.listed) return true;
+    return r.listing.excludedReason !== "internal-codename";
+  });
+  return hits.find((r) => r.listing.listed) ?? hits[0];
+}
+
+const errLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 180);
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+const mFns = ["marketId", "orderBook", "state", "resolutionDate"] as const;
+const bFns = ["bestBid", "bestAsk", "resolved", "finalPrice", "minOrderQty", "minOrderCollateralRaw", "nextOrderId", "batchNonce", "activeOrderCount", "isCrossed", "clearableAt"] as const;
+const num = (v: unknown) => (v === undefined ? undefined : Number(v as bigint));
+
+/** Market rows for one registry. Throws if the registry itself cannot be read. */
+async function rowsFromRegistry(reg: Address, indexBase: number): Promise<Omit<MarketRow, "listing">[]> {
+  const count = Number(await pub.readContract({ address: reg, abi: registryAbi, functionName: "marketsCount" }));
+  if (!Number.isFinite(count) || count < 0 || count > 5000) throw new Error(`marketsCount ${count} is not usable`);
+  const got = (await multi([...Array(count).keys()].map((i) => ({
+    address: reg, abi: registryAbi, functionName: "markets", args: [BigInt(i)],
+  })))) as Address[];
+  const addrs = got.filter((a) => a && a !== ZERO_ADDR);
   const mRes = await multi(addrs.flatMap((a) => mFns.map((fn) => ({ address: a, abi: marketAbi, functionName: fn }))));
-  const bFns = ["bestBid", "bestAsk", "resolved", "finalPrice", "minOrderQty", "minOrderCollateralRaw", "nextOrderId", "batchNonce", "activeOrderCount", "isCrossed", "clearableAt"] as const;
   const books = addrs.map((_, i) => mRes[i * 4 + 1] as Address);
   const bRes = await multi(books.flatMap((b) => bFns.map((fn) => ({ address: b, abi: bookAbi, functionName: fn }))));
-  const num = (v: unknown) => (v === undefined ? undefined : Number(v as bigint));
-  const nowSec = Math.floor(Date.now() / 1000);
-  const hidden = new Set(CONTRACTS.hiddenMarketIds);
-  const rows: Omit<MarketRow, "listing">[] = addrs.map((addr, i) => {
+  return addrs.map((addr, i) => {
     const raw = (mRes[i * 4] as string) ?? "0x";
     const b = (k: number) => bRes[i * bFns.length + k];
     const marketId = decodeMarketId(raw);
     return {
-      index: i,
+      index: indexBase + i,
       marketId,
       idWellFormed: isCanonicalMarketId(raw),
       marketAddr: addr,
       bookAddr: books[i]!,
-      registry: regOf[i]!,
+      registry: reg,
       state: num(mRes[i * 4 + 2]) ?? 0,
       resolutionDate: num(mRes[i * 4 + 3]) ?? 0,
       bestBid: num(b(0)) ?? 0,
@@ -122,10 +135,31 @@ export async function allMarkets(): Promise<MarketRow[]> {
       clearableAt: num(b(10)),
       title: MARKET_TITLES[marketId] ?? marketId,
     };
-  }).filter((r) => !hidden.has(r.marketId));
-  const decisions = listingDecisions(rows, nowSec);
-  const full = rows.map((r) => ({ ...r, listing: decisions.get(r.index) ?? { listed: true as const } }));
-  cache = { at: Date.now(), rows: full };
+  });
+}
+
+/** Every registry market with its chain state and listing decision (same policy as GET /agent/markets). */
+export async function allMarkets(): Promise<MarketRow[]> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.rows;
+  await assertTestnet();
+  const registries: string[] = [];
+  const errors: string[] = [];
+  const rows: Omit<MarketRow, "listing">[] = [];
+  for (const reg of CONTRACTS.marketRegistries as readonly Address[]) {
+    try {
+      rows.push(...await rowsFromRegistry(reg, rows.length));
+      registries.push(reg);
+    } catch (e) {
+      errors.push(`${reg}: ${errLine(e)}`);
+    }
+  }
+  if (!registries.length) throw new Error(errors.join("; ") || "no MarketRegistry could be read");
+  const hidden = new Set(CONTRACTS.hiddenMarketIds);
+  const visible = rows.filter((r) => !hidden.has(r.marketId));
+  const merged = dedupeMarkets(visible, CONTRACTS.marketRegistries).map((r, i) => ({ ...r, index: i }));
+  const decisions = listingDecisions(merged, Math.floor(Date.now() / 1000));
+  const full = merged.map((r) => ({ ...r, listing: decisions.get(r.index) ?? { listed: true as const } }));
+  cache = { at: Date.now(), rows: full, registries, errors };
   return full;
 }
 
