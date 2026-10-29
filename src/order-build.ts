@@ -9,7 +9,7 @@ import { allMarkets, pickMarket, pub, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
 import { configuredClose } from "./closes.js";
 import { getJson } from "./fetch.js";
-import { apiTrading, chainTrading, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
+import { apiTrading, chainRowRefusal, chainTrading, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
 
 export const FEE_RATE_BPS = 25n; // 0.25%, Account.FEE_RATE_BPS on chain
 export const PRICE_MAX = 10000n;
@@ -103,9 +103,8 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
   const row = await findRow(inp.id);
   if (!row) return { ok: false, err: { error: "unknown_market", message: "Unknown market id. Call smx_list_markets for valid ids." } };
   const trading = await tradingFor(inp.id, row);
-  const refused = tradingRefusal(inp.id, trading);
+  const refused = tradingRefusal(inp.id, trading) ?? chainRowRefusal(inp.id, row);
   if (refused) return { ok: false, err: refused };
-  if (row.state !== 0 || row.resolved) return { ok: false, err: { error: "market_closed", message: `${inp.id} is not open on chain.` } };
 
   const m = orderMath(inp.outcome, inp.action, inp.qty, inp.limitPrice);
   if (row.minOrderQty !== undefined && inp.qty < row.minOrderQty) return { ok: false, err: { error: "below_min_size", message: `Minimum order is ${row.minOrderQty} shares.` } };

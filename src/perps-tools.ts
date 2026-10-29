@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getJson, UA } from "./fetch.js";
 import { HTTP_TIMEOUT_MS } from "./config.js";
 import { fetchSmx } from "./telemetry.js";
+import { interpretUpstreamMarketError } from "./trading.js";
 
 export const SMX_PERPS_API = (process.env.SMX_PERPS_API ?? "https://smx-perps-preview.fly.dev/perps/v0").replace(/\/$/, "");
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
@@ -35,7 +36,11 @@ export function registerPerpsTools(server: McpServer, ok: Ok, fail: Fail) {
   const call = async (p: Promise<{ status: number; body: any }>, summary: (b: any) => string) => {
     try {
       const { status, body } = await p;
-      if (status !== 200 || body?.error) return fail(`${body?.code ?? "error"}: ${body?.error ?? status}`, { error: body?.error, code: body?.code ?? (status === 404 ? "not_found" : "unavailable") });
+      if (status !== 200 || body?.error) {
+        const shaped = interpretUpstreamMarketError(body);
+        if (shaped) return fail(`${shaped.code}: ${shaped.reason}`, shaped);
+        return fail(`${body?.code ?? "error"}: ${body?.error ?? status}`, { error: body?.error, code: body?.code ?? (status === 404 ? "not_found" : "unavailable") });
+      }
       return ok(summary(body), { ...body, source: SMX_PERPS_API });
     } catch (e) { return fail(`unavailable: ${(e as Error).message}`, { code: "unavailable" }); }
   };
@@ -48,13 +53,13 @@ export function registerPerpsTools(server: McpServer, ok: Ok, fail: Fail) {
 
   server.registerTool("perps_quote", {
     title: "SMX perps: quote", annotations: { ...RO, title: "SMX perps quote" },
-    description: "Indicative fill price, margin and liquidation price for a perps order, plus reduce-only status. No execution.",
+    description: "Indicative fill price, margin and liquidation price for a perps order, plus reduce-only status. No execution. A closed, paused, resolved or expired market returns a structured error with state and reason (for example market closed at a time, or market paused).",
     inputSchema: { market: MKT, side: z.enum(["long", "short"]), size_musdc: z.number().positive(), leverage: z.number().positive().optional() },
   }, async ({ market, side, size_musdc, leverage }) => call(get(`/quote?${new URLSearchParams({ market, side, size_musdc: String(size_musdc), leverage: String(leverage ?? 1) })}`), (b) => `${market} ${side}: fill ${b.fill_px}, liq ${b.liq_px}.`));
 
   server.registerTool("perps_build_order", {
     title: "SMX perps: build unsigned order", annotations: { ...RO, title: "SMX perps build (unsigned)" },
-    description: "Builds UNSIGNED Base Sepolia transactions: faucet (MockUSDC), open (side + margin_musdc+leverage or size_musdc; MockUSDC approve included when needed; pass address to skip a redundant approve) or close (position_id; close_size_musdc 0 = full; always reduce-only). Sign and send in order from your own wallet within 60s. Refused opens return code market_closed with the reason.",
+    description: "Builds UNSIGNED Base Sepolia transactions: faucet (MockUSDC), open (side + margin_musdc+leverage or size_musdc; MockUSDC approve included when needed; pass address to skip a redundant approve) or close (position_id; close_size_musdc 0 = full; always reduce-only). Sign and send in order from your own wallet within 60s. A closed, paused, resolved or expired market returns a structured error with state and reason.",
     inputSchema: {
       action: z.enum(["faucet", "open", "close"]), market: MKT.optional(), side: z.enum(["long", "short"]).optional(),
       margin_musdc: z.number().positive().optional(), leverage: z.number().positive().optional(), size_musdc: z.number().positive().optional(),
