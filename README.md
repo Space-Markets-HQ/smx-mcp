@@ -19,6 +19,28 @@ This server **never signs, sends or holds keys and never resolves markets.** `sm
 sign and send from your own wallet. `smx_trading_guide` returns the steps and `smx_check_cancel_safety` helps you follow the
 claim-before-cancel rule (`smx_build_cancel` adds the claims first automatically).
 
+## QUICKSTART
+
+SMX is live on testnet (Base Sepolia, chain id 84532). No key or account. An agent can take a first quote in a few minutes.
+
+**Install.** `npx -y smx-mcp`, or `npm install -g smx-mcp` and then `smx-mcp`.
+
+**Connect.** Hosted endpoint: `https://smx.space/mcp`. The same block is the Claude Desktop config (`claude_desktop_config.json`) and the Cursor config (`~/.cursor/mcp.json` or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "smx": {
+      "url": "https://smx.space/mcp"
+    }
+  }
+}
+```
+
+Stdio from the install above, instead of the hosted endpoint: `"command": "npx"` and `"args": ["-y", "smx-mcp"]`. If the hosted endpoint does not answer, use that stdio command.
+
+**List markets and read a quote.** Call `smx_list_markets`, then `smx_get_market` with an `id` from that list. The quote is `bestBidBps`, `bestAskBps` and `yesPriceCents`. A perps quote is `perps_list_markets`, then `perps_quote`.
+
 ## Tools
 
 | Tool | Cost | What it returns |

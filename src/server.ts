@@ -10,7 +10,7 @@ import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
 import { runWithTool } from "./telemetry.js";
 import { registerWriteTools } from "./write-tools.js";
 import { registerPerpsTools } from "./perps-tools.js";
-import { apiTrading, apiTradingAll, chainTrading, tradingRefusal, type Trading } from "./trading.js";
+import { apiTrading, apiTradingAll, chainRowRefusal, chainTrading, interpretUpstreamMarketError, tradingRefusal, type Trading } from "./trading.js";
 
 export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
@@ -27,7 +27,12 @@ function ok(summary: string, data: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: `${summary}\n\n${JSON.stringify(data, null, 2)}` }], structuredContent: data };
 }
 function fail(text: string, extra: Record<string, unknown> = {}): CallToolResult {
-  return { isError: true, content: [{ type: "text", text: extra && Object.keys(extra).length ? `${text}\n\n${JSON.stringify(extra, null, 2)}` : text }] };
+  const has = Object.keys(extra).length > 0;
+  return {
+    isError: true,
+    content: [{ type: "text", text: has ? `${text}\n\n${JSON.stringify(extra, null, 2)}` : text }],
+    ...(has ? { structuredContent: extra } : {}),
+  };
 }
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 300);
 
@@ -218,7 +223,7 @@ export function createServer(): McpServer {
       let orderBook: string | null = null;
       let registry: string | null = null;
       if (id) {
-        // Trading cut-off first: a closed or halted market gets no order steps.
+        // Trading cut-off first: a closed, paused, resolved, expired or halted market gets no order steps.
         const api = await apiTrading(id);
         if (api) {
           const refused = tradingRefusal(id, api);
@@ -229,8 +234,8 @@ export function createServer(): McpServer {
         orderBook = row?.bookAddr ?? null;
         registry = row?.registry ?? null;
         if (!orderBook) return fail("Unknown market id. Call smx_list_markets for valid ids.");
-        if (!api) {
-          const refused = tradingRefusal(id, chainTrading(row));
+        if (!api || api.status === "open") {
+          const refused = chainRowRefusal(id, row);
           if (refused) return fail(`${refused.error}: ${refused.message}`, { ...refused });
         }
       }
@@ -259,7 +264,7 @@ export function createServer(): McpServer {
         tokens: "Order collateral is SMX test USDC (0x5882...c4E1). It has no monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",
-        tradingCutoff: "Do not submit orders on a market whose trading.status is closed or halted (smx_get_market). Pass id here to check: closed or halted markets return market_closed / market_halted. Status: GET https://smx.space/agent/trading/{id}.",
+        tradingCutoff: "Do not submit orders on a market that is closed, paused, resolved, expired or halted (smx_get_market). Pass id here to check. The error names the state and the reason, for example market closed at <time> or market paused (market_closed, market_paused, market_resolved, market_expired; a halt is market_halted). Status: GET https://smx.space/agent/trading/{id}.",
         ...common(),
       };
       return ok(`Trade SMX testnet markets from your own wallet. ${STRANDED_FILL_RULE}`, data);
@@ -322,7 +327,11 @@ export function createServer(): McpServer {
   const idx = async (path: string, summary: (b: any) => string) => {
     try {
       const { status, body } = await getJson(`${SMX_INDEXER}${path}`);
-      if (status !== 200) return fail(`SMX indexer returned ${status} for ${path}.`, { body });
+      if (status !== 200) {
+        const shaped = interpretUpstreamMarketError(body);
+        if (shaped) return fail(`${shaped.code}: ${shaped.reason}`, shaped);
+        return fail(`SMX indexer returned ${status} for ${path}.`, { body });
+      }
       return ok(summary(body), { ...(body as Record<string, unknown>), source: `${SMX_INDEXER}${path}`, ...common() });
     } catch (e) { return fail(`SMX indexer read failed: ${errMsg(e)}`); }
   };

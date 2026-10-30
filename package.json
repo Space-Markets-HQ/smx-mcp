@@ -23,7 +23,7 @@
     "start:http": "node dist/index.js --http",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "node test/unit.mjs && node test/telemetry.mjs && node test/copy-check.mjs && node test/read-only.mjs && node test/trading.mjs && node test/write-tools.mjs && node test/registries.mjs",
+    "test": "node test/unit.mjs && node test/quickstart.mjs && node test/market-state.mjs && node test/telemetry.mjs && node test/copy-check.mjs && node test/read-only.mjs && node test/trading.mjs && node test/write-tools.mjs && node test/registries.mjs",
     "sim:write": "node test/write-sim.mjs",
     "smoke": "node test/smoke.mjs",
     "smoke:http": "node test/smoke-http.mjs"
