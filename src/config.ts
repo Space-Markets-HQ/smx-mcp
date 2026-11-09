@@ -63,7 +63,13 @@ export const CONTRACTS = {
     "starship-reflight-mar27-test", "starship-reflight-jun27-test", "starship-reflight-dec27-test",
     "starship-shipcatch-nov26-test", "starship-shipcatch-dec26-test", "starship-shipcatch-mar27-test",
   ]) as readonly string[],
+  /** Legacy Factory (first registry). Kept for callers that display one address; trading uses factoryFor(registry). */
   factory: "0x409cFe0157aE3Ec2C321F97422a4bFc539c4b28a",
+  /** Each MarketRegistry has its own Factory. An SMX Account only trades books in its own Factory's registry (else NotMarket(), 0xc4bbea69). */
+  factoriesByRegistry: {
+    "0x8f3b0ae76690ef0972ad3cf9010797d266fcda4a": "0x409cFe0157aE3Ec2C321F97422a4bFc539c4b28a",
+    "0xcd293b4b311845c023772cdd8738849e1a274acd": "0x1F138B48CF923097e7166c01Ee97719a0CfEE214",
+  } as Readonly<Record<string, string>>,
   testUsdcCollateral: "0x5882C96199e09771b01cFDC51eDea1D5814fc4E1",
 } as const;
 
@@ -105,3 +111,16 @@ export const LINKS = {
 } as const;
 
 export const HTTP_TIMEOUT_MS = Number(env("SMX_HTTP_TIMEOUT_MS") ?? "20000");
+
+/**
+ * The Factory that onboards traders for books in this registry (Factory.marketRegistry() == registry).
+ * Override or extend with SMX_FACTORIES="registry:factory,registry:factory". Undefined = unknown registry.
+ */
+export function factoryFor(registry: string): string | undefined {
+  const key = registry.toLowerCase();
+  for (const pair of (env("SMX_FACTORIES") ?? "").split(",")) {
+    const [r, f] = pair.split(":").map((x) => x?.trim());
+    if (r && f && r.toLowerCase() === key && /^0x[0-9a-fA-F]{40}$/.test(f)) return f;
+  }
+  return CONTRACTS.factoriesByRegistry[key];
+}

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, pickMarket, registryReadStatus, unclaimedFills, type MarketRow } from "./chain.js";
-import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
+import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN, factoryFor } from "./config.js";
 import { LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
@@ -198,7 +198,7 @@ export function createServer(): McpServer {
             clearableAt: r.clearableAt ? new Date(r.clearableAt * 1000).toISOString() : null,
             priceUnits: "YES-terms basis points for both sides. Bids are YES buys; asks are YES sells, i.e. NO buys at 10000 minus the price.",
           },
-          contracts: { marketRegistry: r.registry, factory: CONTRACTS.factory, collateralToken: CONTRACTS.testUsdcCollateral, orderBook: r.bookAddr, market: r.marketAddr },
+          contracts: { marketRegistry: r.registry, factory: factoryFor(r.registry) ?? CONTRACTS.factory, collateralToken: CONTRACTS.testUsdcCollateral, orderBook: r.bookAddr, market: r.marketAddr },
           liquidityNote: LIQUIDITY_NOTE,
           links: { app: LINKS.app, skill: LINKS.skill, explorer: `${LINKS.explorer}/address/${r.bookAddr}` },
           ...common(),
@@ -260,7 +260,7 @@ export function createServer(): McpServer {
           minOrder: "shares x price >= 10000 (price in bps of the side you buy), so at least ceil(10000 / price) shares",
           fee: "0.25% x shares x (1 - price), charged at placement, refunded in full on cancel of an order with no fills",
         },
-        contracts: { factory: CONTRACTS.factory, marketRegistry: registry ?? CONTRACTS.marketRegistry, marketRegistries: CONTRACTS.marketRegistries, collateralToken: CONTRACTS.testUsdcCollateral, ...(orderBook ? { orderBook } : {}) },
+        contracts: { factory: (registry && factoryFor(registry)) ?? CONTRACTS.factory, factoriesByRegistry: CONTRACTS.factoriesByRegistry, factoryRule: "Each MarketRegistry has its own Factory. Onboard (requestAccess, deployAccount) with the Factory for the market's registry; an Account from another Factory gets NotMarket() (0xc4bbea69).", marketRegistry: registry ?? CONTRACTS.marketRegistry, marketRegistries: CONTRACTS.marketRegistries, collateralToken: CONTRACTS.testUsdcCollateral, ...(orderBook ? { orderBook } : {}) },
         tokens: "Order collateral is SMX test USDC (0x5882...c4E1). It has no monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",
