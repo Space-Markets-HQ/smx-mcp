@@ -6,7 +6,7 @@
  */
 import { encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
 import { allMarkets, pickMarket, pub, type MarketRow } from "./chain.js";
-import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN } from "./config.js";
+import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN, factoryFor } from "./config.js";
 import { configuredClose } from "./closes.js";
 import { getJson } from "./fetch.js";
 import { apiTrading, chainRowRefusal, chainTrading, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
@@ -47,7 +47,7 @@ export const obAbi = parseAbi([
 ]);
 
 export type UnsignedTx = { step: string; to: Address; data: Hex; value: "0x0"; chainId: typeof CHAIN_ID; gas: string; note?: string };
-export type OffchainStep = { step: string; offchain: true; method: "POST"; url: string; body: Record<string, unknown>; note: string };
+export type OffchainStep = { step: string; offchain: true; method: "POST"; url: string; body: Record<string, unknown>; note: string; factory?: string };
 export type BuildError = { error: string; message: string; [k: string]: unknown };
 
 const tx = (step: string, to: Address, data: Hex, gas: bigint, note?: string): UnsignedTx => ({ step, to: getAddress(to), data, value: "0x0", chainId: CHAIN_ID, gas: `0x${gas.toString(16)}`, ...(note ? { note } : {}) });
@@ -86,12 +86,17 @@ export async function tradingFor(id: string, row: MarketRow | undefined, nowMs =
   return cfg ? { ...chain, closeAt: cfg } : chain;
 }
 
-export async function accountState(wallet: Address) {
+/** Factory for a market row's registry; falls back to the legacy Factory for rows without a known registry. */
+export function factoryOf(row: { registry?: string }): Address {
+  return getAddress((row.registry && factoryFor(row.registry)) || CONTRACTS.factory);
+}
+
+export async function accountState(wallet: Address, factory: Address = getAddress(CONTRACTS.factory)) {
   const [access, account] = await Promise.all([
-    pub.readContract({ address: CONTRACTS.factory, abi: factoryAbi, functionName: "access", args: [wallet] }) as Promise<number>,
-    pub.readContract({ address: CONTRACTS.factory, abi: factoryAbi, functionName: "accountOf", args: [wallet] }) as Promise<Address>,
+    pub.readContract({ address: factory, abi: factoryAbi, functionName: "access", args: [wallet] }) as Promise<number>,
+    pub.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [wallet] }) as Promise<Address>,
   ]);
-  return { access: Number(access), account: account && account !== ZERO ? getAddress(account) : null };
+  return { factory, access: Number(access), account: account && account !== ZERO ? getAddress(account) : null };
 }
 
 export type BuildOrderInput = { id: string; outcome: "Yes" | "No"; action: "buy" | "sell"; qty: number; limitPrice: number; wallet: string; mintTestUsdc?: boolean };
@@ -111,14 +116,15 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
   if (row.minOrderCollateralRaw !== undefined && m.collateralRaw < BigInt(row.minOrderCollateralRaw))
     return { ok: false, err: { error: "below_min_collateral", message: `Order too small: shares x price must be at least ${row.minOrderCollateralRaw} (raw bps units, $1).`, minShares: Math.ceil(row.minOrderCollateralRaw / (m.internalSide === "Buy" ? m.internalPriceBps : 10000 - m.internalPriceBps)) } };
 
-  const { access, account } = await accountState(wallet);
+  const factory = factoryOf(row);
+  const { access, account } = await accountState(wallet, factory);
   const txs: Array<UnsignedTx | OffchainStep> = [];
   let escrowMicro = m.collateralMicro; // fresh account: no offsetting position
   let freeMicro = 0n;
   if (!account) {
-    if (access === 0) txs.push(tx("requestAccess", CONTRACTS.factory, encodeFunctionData({ abi: factoryAbi, functionName: "requestAccess" }), GAS.requestAccess, "Signals intent to trade. Then the off-chain approve step."));
-    if (access !== 2) txs.push({ step: "approveAccess", offchain: true, method: "POST", url: `${SMX_ORIGIN}/app/__approve`, body: { address: wallet, chainId: CHAIN_ID }, note: "Testnet auto-approve (no signature). Wait until Factory.access(wallet) == 2 before deployAccount." });
-    txs.push(tx("deployAccount", CONTRACTS.factory, encodeFunctionData({ abi: factoryAbi, functionName: "deployAccount" }), GAS.deployAccount, "Creates your own SMX Account (about 2.8M gas). Read Factory.accountOf(wallet) afterwards, then call smx_build_order again for exact funding."));
+    if (access === 0) txs.push(tx("requestAccess", factory, encodeFunctionData({ abi: factoryAbi, functionName: "requestAccess" }), GAS.requestAccess, "Signals intent to trade. Then the off-chain approve step."));
+    if (access !== 2) txs.push({ step: "approveAccess", offchain: true, method: "POST", url: `${SMX_ORIGIN}/app/__approve`, body: { address: wallet, chainId: CHAIN_ID }, note: "Testnet auto-approve (no signature). Wait until Factory.access(wallet) == 2 before deployAccount.", factory });
+    txs.push(tx("deployAccount", factory, encodeFunctionData({ abi: factoryAbi, functionName: "deployAccount" }), GAS.deployAccount, "Creates your own SMX Account (about 2.8M gas). Read Factory.accountOf(wallet) afterwards, then call smx_build_order again for exact funding."));
   } else {
     const [avail, reserved, curMkt, after] = await Promise.all([
       pub.readContract({ address: account, abi: accountAbi, functionName: "availableBalance" }) as Promise<bigint>,
@@ -148,7 +154,7 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
   return {
     ok: true,
     data: {
-      marketId: inp.id, orderBook: row.bookAddr, wallet, account, accountStatus: account ? "ready" : ["none", "requested", "approved"][access],
+      marketId: inp.id, orderBook: row.bookAddr, factory, marketRegistry: row.registry, wallet, account, accountStatus: account ? "ready" : ["none", "requested", "approved"][access],
       order: { outcome: inp.outcome, action: inp.action, qty: inp.qty, limitPriceCents: inp.limitPrice, userSide: m.userSide, userPriceBps: Number(m.userPrice), internalSide: m.internalSide, internalPriceBps: m.internalPriceBps },
       costs: { escrowMicroUsdc: escrowMicro.toString(), maxFeeMicroUsdc: m.maxFeeMicro.toString(), feeRule: "0.25% (Account.FEE_RATE_BPS = 25) x shares x the other side's price, charged at claim at the clear price", freeBalanceMicroUsdc: freeMicro.toString(), depositMicroUsdc: shortfall.toString() },
       trading: { status: trading.status, closeAt: trading.closeAt, source: trading.source },
@@ -187,8 +193,8 @@ export async function buildClaim(inp: { id: string; wallet: string; orderIds?: n
   const wallet = getAddress(inp.wallet);
   const row = await findRow(inp.id);
   if (!row) return { ok: false as const, err: { error: "unknown_market", message: "Unknown market id." } };
-  const { account } = await accountState(wallet);
-  if (!account) return { ok: false as const, err: { error: "no_account", message: "This wallet has no SMX Account, so there is nothing to claim." } };
+  const { account } = await accountState(wallet, factoryOf(row));
+  if (!account) return { ok: false as const, err: { error: "no_account", message: "This wallet has no SMX Account for this market's deployment, so there is nothing to claim." } };
   const ids = inp.orderIds?.length ? inp.orderIds : await indexedOrderIds(account, inp.id);
   const fills = await fillsOf(row.bookAddr, ids);
   // Claim is permissionless, but only unclaimed fills succeed: keep those whose claim simulates OK.
@@ -206,7 +212,7 @@ export async function buildCancel(inp: { id: string; wallet: string; orderId: nu
   const wallet = getAddress(inp.wallet);
   const row = await findRow(inp.id);
   if (!row) return { ok: false as const, err: { error: "unknown_market", message: "Unknown market id." } };
-  const { account } = await accountState(wallet);
+  const { account } = await accountState(wallet, factoryOf(row));
   if (!account) return { ok: false as const, err: { error: "no_account", message: "This wallet has no SMX Account." } };
   const o = (await pub.readContract({ address: row.bookAddr, abi: obAbi, functionName: "orders", args: [BigInt(inp.orderId)] })) as readonly [Address, bigint, bigint, bigint];
   if (o[1] === 0n) return { ok: false as const, err: { error: "order_not_open", message: `Order ${inp.orderId} is not resting (filled, cancelled or unknown).` } };
