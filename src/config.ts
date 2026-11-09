@@ -84,11 +84,19 @@ export const MARKET_TITLES: Record<string, string> = {
   "starcloud-orbital-compute-test": "Starcloud (orbital compute)",
   "star-catcher-power-beam-test": "Star Catcher (power beaming)",
   "star-catcher-power-beam-test-v2": "Star Catcher (power beaming)",
+  "tsla-spcx-da-dec26-test": "Tesla and SpaceX sign a merger agreement by 31 Dec 2026",
+  "tsla-spcx-da-mar27-test": "Tesla and SpaceX sign a merger agreement by 31 Mar 2027",
+  "tsla-spcx-da-jun27-test": "Tesla and SpaceX sign a merger agreement by 30 Jun 2027",
+  "tsla-spcx-da-dec27-test": "Tesla and SpaceX sign a merger agreement by 31 Dec 2027",
   "starship-f14-splashdown-test": "Starship Flight 14: controlled splashdown",
 };
 
 /** Plain-language questions for the published app markets (from the published rules). */
 export const MARKET_QUESTIONS: Record<string, string> = {
+  "tsla-spcx-da-dec26-test": "Will Tesla, Inc. and Space Exploration Technologies Corp. (SpaceX) sign a definitive agreement to combine the two companies, disclosed in an SEC filing or official announcement, by 11:59 PM ET on 31 Dec 2026? Signing counts even if the deal later ends.",
+  "tsla-spcx-da-mar27-test": "Will Tesla, Inc. and Space Exploration Technologies Corp. (SpaceX) sign a definitive agreement to combine the two companies, disclosed in an SEC filing or official announcement, by 11:59 PM ET on 31 Mar 2027? Signing counts even if the deal later ends.",
+  "tsla-spcx-da-jun27-test": "Will Tesla, Inc. and Space Exploration Technologies Corp. (SpaceX) sign a definitive agreement to combine the two companies, disclosed in an SEC filing or official announcement, by 11:59 PM ET on 30 Jun 2027? Signing counts even if the deal later ends.",
+  "tsla-spcx-da-dec27-test": "Will Tesla, Inc. and Space Exploration Technologies Corp. (SpaceX) sign a definitive agreement to combine the two companies, disclosed in an SEC filing or official announcement, by 11:59 PM ET on 31 Dec 2027? Signing counts even if the deal later ends.",
   "moon-race-us-china-test-v2":
     "Will the United States achieve a qualifying crewed lunar landing before China? YES = United States, NO = China.",
   "starship-payload-orbit-test": "Will Starship deploy a payload to orbit before 11:59 PM ET on 31 Dec 2026?",
