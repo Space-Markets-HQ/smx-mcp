@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, pickMarket, registryReadStatus, unclaimedFills, type MarketRow } from "./chain.js";
-import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN, factoryFor } from "./config.js";
+import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN, factoryFor, rulesUrlFor } from "./config.js";
 import { LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
@@ -10,6 +10,7 @@ import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
 import { runWithTool } from "./telemetry.js";
 import { registerWriteTools } from "./write-tools.js";
 import { registerPerpsTools } from "./perps-tools.js";
+import { fetchRules, RULES_SOURCE, type IndexerRule } from "./rules.js";
 import { apiTrading, apiTradingAll, chainRowRefusal, chainTrading, interpretUpstreamMarketError, tradingRefusal, type Trading } from "./trading.js";
 
 export const INSTRUCTIONS = [
@@ -40,13 +41,19 @@ const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, o
 
 const SMI_SECTIONS = ["launch_access", "compute_energy", "connectivity_data", "spectrum_filings", "moon_deep_space"] as const;
 
-function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), trading?: Trading | null) {
+function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), trading?: Trading | null, rules?: Map<string, IndexerRule>) {
+  const rule = rules?.get(r.marketId);
   const q = quoteOf(r.bestBid, r.bestAsk);
   const mid = midOf(r);
   return {
     id: r.marketId,
     title: r.title,
-    question: MARKET_QUESTIONS[r.marketId] ?? null,
+    question: rule?.question ?? MARKET_QUESTIONS[r.marketId] ?? null,
+    rulesUrl: rulesUrlFor(r.marketId),
+    rules: rule?.rules ?? null,
+    rulesHash: rule?.rulesHash ?? null,
+    rulesClose: rule?.close ?? null,
+    rulesSource: RULES_SOURCE,
     state: stateNameV1(r.state),
     status: statusOf(r, nowSec),
     outcome: outcomeOf(r),
@@ -152,18 +159,19 @@ export function createServer(): McpServer {
     {
       title: "SMX: list markets",
       description:
-        "List SMX event markets live on Base Sepolia testnet, read from every configured on-chain MarketRegistry (SMX_REGISTRIES) and de-duplicated by market id. Same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents) and minimum order. Free, no key. Test USDC, no monetary value.",
+        "List SMX event markets live on Base Sepolia testnet, read from every configured on-chain MarketRegistry (SMX_REGISTRIES) and de-duplicated by market id. Same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents), minimum order, rules link and short rules text. Free, no key. Test USDC, no monetary value.",
       inputSchema: { include_unlisted: z.boolean().optional().describe("Also return drills, superseded versions and other unlisted registry entries, with the reason.") },
       annotations: { ...RO, title: "SMX markets" },
     },
     async ({ include_unlisted }) => {
       try {
+        const rulesP = fetchRules().catch(() => new Map<string, IndexerRule>());
         const rows = await allMarkets();
         const nowSec = Math.floor(Date.now() / 1000);
         // Internal engineering markets are never shown, even with include_unlisted.
         const visible = rows.filter((r) => r.listing.listed || r.listing.excludedReason !== "internal-codename");
-        const trading = await apiTradingAll();
-        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId)));
+        const [trading, rules] = await Promise.all([apiTradingAll(), rulesP]);
+        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId), rules));
         const read = registryReadStatus();
         const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, registries: read.registries, ...(read.errors.length ? { registryReadErrors: read.errors } : {}), source: `MarketRegistry ${read.registries.join(", ")} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
         const line = markets.map((m) => `${m.id} (${m.status}${m.trading.status !== "open" ? `, trading ${m.trading.status}` : ""}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
@@ -179,17 +187,19 @@ export function createServer(): McpServer {
     {
       title: "SMX: market detail and order book",
       description:
-        "One SMX testnet market: question, state, outcome if resolved, best bid and ask, YES midpoint, minimum order, contract addresses and the resting order book aggregated by price level (read from chain). Free, no key. Test USDC, no monetary value.",
+        "One SMX testnet market: question, state, outcome if resolved, best bid and ask, YES midpoint, minimum order, rules link and short rules text, contract addresses and the resting order book aggregated by price level (read from chain). Free, no key. Test USDC, no monetary value.",
       inputSchema: { id: z.string().min(1).max(64).describe("Market id from smx_list_markets, e.g. moon-race-us-china-test-v2.") },
       annotations: { ...RO, title: "SMX market detail" },
     },
     async ({ id }) => {
       try {
+        const rulesP = fetchRules().catch(() => new Map<string, IndexerRule>());
         const r = await findMarket(id);
         if (!r) return fail("Unknown market id. Call smx_list_markets for valid ids.");
         const depth = isResolved(r) || !r.nextOrderId ? { bids: [], asks: [], activeOrdersScanned: 0 } : await bookDepth(r.bookAddr, r.nextOrderId);
+        const [trading, rules] = await Promise.all([apiTrading(r.marketId), rulesP]);
         const data = {
-          ...marketView(r, undefined, await apiTrading(r.marketId)),
+          ...marketView(r, undefined, trading, rules),
           book: {
             ...depth,
             batchNonce: r.batchNonce ?? null,
@@ -200,7 +210,7 @@ export function createServer(): McpServer {
           },
           contracts: { marketRegistry: r.registry, factory: factoryFor(r.registry) ?? CONTRACTS.factory, collateralToken: CONTRACTS.testUsdcCollateral, orderBook: r.bookAddr, market: r.marketAddr },
           liquidityNote: LIQUIDITY_NOTE,
-          links: { app: LINKS.app, skill: LINKS.skill, explorer: `${LINKS.explorer}/address/${r.bookAddr}` },
+          links: { app: LINKS.app, skill: LINKS.skill, rules: rulesUrlFor(r.marketId), explorer: `${LINKS.explorer}/address/${r.bookAddr}` },
           ...common(),
         };
         return ok(`${r.title} (${r.marketId}): ${data.status}${data.resolution ? `, outcome ${data.resolution.outcome}` : data.yesPriceBps !== null ? `, YES ${data.yesPriceCents}c (${data.priceSource})` : ", no quote"}.`, data);

@@ -47,8 +47,8 @@ Stdio from the install above, instead of the hosted endpoint: `"command": "npx"`
 |---|---|---|
 | `smi_get_latest` | free | Latest SMI print: headline (SMI Launch Cadence + formula) and a one-line summary per sub-index; `sub_index` returns one in full |
 | `smi_get_methodology` | free | SMI methodology: version, change log, conflicts statement, headline formula, counting rules |
-| `smx_list_markets` | free | SMX markets live on testnet, read from every configured Base Sepolia MarketRegistry and de-duplicated by id (same listing rules as the agent API): state, status, outcome, bid/ask, YES midpoint, minimum order |
-| `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links |
+| `smx_list_markets` | free | SMX markets live on testnet, read from every configured Base Sepolia MarketRegistry and de-duplicated by id (same listing rules as the agent API): state, status, outcome, bid/ask, YES midpoint, minimum order, rules link and short rules text |
+| `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links, rules link and short rules text |
 | `smx_trading_guide` | free | How to trade from your own wallet: steps, addresses, order rules, the claim-before-cancel rule |
 | `smx_check_cancel_safety` | free | Unclaimed-fill check for your order ids (`fills(orderId, n)` for every batch, plus a `claim` simulation). `safeToCancel=false` means do not cancel |
 | `smx_build_order` | free | UNSIGNED transactions to place a limit order from your own wallet: access request, Account deploy, test USDC mint, approve, deposit, submitOrder, all against the Factory for that market's registry |

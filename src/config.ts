@@ -6,7 +6,7 @@ import { getAddress } from "viem";
 
 export const SERVER_NAME = "smx-mcp";
 export const SERVER_TITLE = "SMX by Space Markets (testnet)";
-export const SERVER_VERSION = "0.2.2";
+export const SERVER_VERSION = "0.2.3";
 
 export const CHAIN_ID = 84532 as const;
 export const NETWORK = "base-sepolia" as const;
@@ -107,6 +107,11 @@ export const MARKET_QUESTIONS: Record<string, string> = {
   "starship-f14-splashdown-test":
     "Will the Starship upper stage complete its planned Flight 14 and make a controlled splashdown?",
 };
+
+/** Public rules page for one market (question and resolution text). */
+export function rulesUrlFor(id: string): string {
+  return `${SMX_ORIGIN}/app/markets/${encodeURIComponent(id)}`;
+}
 
 export const LINKS = {
   app: `${SMX_ORIGIN}/app/`,
