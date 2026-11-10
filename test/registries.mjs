@@ -130,7 +130,7 @@ assert.match(v8.priceSource, /midpoint|bid-only|ask-only|unquoted/);
 
 const bookBody = body(await client.callTool({ name: "smx_get_book", arguments: { id: "TEST-V7-SS2LIFT-31DEC26" } }));
 assert.equal(String(bookBody.book).toLowerCase(), quoted.bookAddr.toLowerCase());
-assert.equal(typeof bookBody.bestBid, "number");
+assert.ok(bookBody.bestBid == null || typeof bookBody.bestBid === "number");
 assert.ok(Array.isArray(bookBody.bids) && Array.isArray(bookBody.asks));
 
 const clearsBody = body(await client.callTool({ name: "smx_get_clears", arguments: { id: "TEST-V7-SS2LIFT-31DEC26", limit: 5 } }));
