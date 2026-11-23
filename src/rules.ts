@@ -16,6 +16,8 @@ export type IndexerRule = {
   rulesHash: string | null;
   /** rules.close when present, otherwise tradingEnd. */
   close: string | null;
+  /** Market dueBy, otherwise rules.dueBy. Null when the indexer has neither. */
+  dueBy: string | null;
   question: string | null;
   rulesVersion: string | number | null;
 };
@@ -44,6 +46,7 @@ export function ruleFromIndexerMarket(m: unknown): { id: string; rule: IndexerRu
       rules: (rules ? asText(rules.summary) : null) ?? asText(o.why),
       rulesHash: asText(o.rulesHash) ?? (rules ? asText(rules.hash) : null),
       close: (rules ? asText(rules.close) : null) ?? asText(o.tradingEnd),
+      dueBy: asText(o.dueBy) ?? (rules ? asText(rules.dueBy) : null),
       question: asText(o.question),
       rulesVersion: rules ? asVersion(rules.version) : null,
     },
