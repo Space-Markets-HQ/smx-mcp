@@ -51,13 +51,15 @@ Stdio from the install above, instead of the hosted endpoint: `"command": "npx"`
 | `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links, rules link and short rules text |
 | `smx_trading_guide` | free | How to trade from your own wallet: steps, addresses, order rules, the claim-before-cancel rule |
 | `smx_check_cancel_safety` | free | Unclaimed-fill check for your order ids (`fills(orderId, n)` for every batch, plus a `claim` simulation). `safeToCancel=false` means do not cancel |
-| `smx_build_order` | free | UNSIGNED transactions to place a limit order from your own wallet: access request, Account deploy, test USDC mint, approve, deposit, submitOrder, all against the Factory for that market's registry |
+| `smx_build_order` | free | UNSIGNED transactions to place a limit order from your own wallet: access request, Account deploy, test USDC mint, approve, deposit, submitOrder, all against the Factory for that market's registry. Checks launch caps first |
 | `smx_build_claim` | free | UNSIGNED `claim(orderId, batchNonce)` transactions for your unclaimed fills in one market |
 | `smx_build_cancel` | free | UNSIGNED cancel of a resting order, with claims for any unclaimed fills first |
 
 **Two deployments.** Each MarketRegistry has its own Factory, and an SMX Account only trades books in its own Factory's registry (otherwise `NotMarket()`, `0xc4bbea69`). Legacy registry `0x8F3B…Da4a` uses Factory `0x409c…b28a`; the launch registry `0xcD29…4AcD` (the Starship launch books) uses Factory `0x1F13…E214`. The build tools pick the right one; one wallet can hold an Account on each.
 
 The tools never change chain state themselves: build tools only return unsigned transactions. All tools are annotated `readOnlyHint: true` and return `structuredContent` plus a one-line text summary.
+
+Launch caps, a per-wallet limit and a per-market open-interest limit, are applied by the SMX app and the SMX API, not on chain. The Base Sepolia contracts do not enforce them. smx_build_order checks the caps API after the trading cut-off and, when the order is not allowed, returns cap_exceeded with kind, limits and charged false and no transaction. If the caps API is unreachable or returns 404, the unsigned order is still built and capsUnknown is true. When caps are enabled, smx_list_markets and smx_get_market include launchCaps (enabled, walletUsdc, marketOiUsdc).
 
 ### Perps (testnet, Base Sepolia, MockUSDC)
 `perps_list_markets`, `perps_quote`, `perps_build_order`, `perps_positions`, `perps_account`. These proxy the SMX perps API (`SMX_PERPS_API`, default `https://smx-perps-preview.fly.dev/perps/v0`) and cover all markets on both engines, including PERP-XRAY and the countdowns. They return UNSIGNED transactions only, plus `reduce_only` status and machine-readable error `code`s. Sign them with your own wallet.

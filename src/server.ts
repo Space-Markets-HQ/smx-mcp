@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { allMarkets, bookDepth, idBytes, pickMarket, registryReadStatus, unclaimedFills, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, LINKS, MARKET_QUESTIONS, NETWORK, SERVER_NAME, SERVER_TITLE, SERVER_VERSION, SMI_API_BASE, SMI_STATIC_BASE, SMX_INDEXER, SMX_ORIGIN, factoryFor, rulesUrlFor } from "./config.js";
-import { LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
+import { LAUNCH_CAPS_NOTE, LIQUIDITY_NOTE, NO_TRADING_NOTE, STRANDED_FILL_RULE, TESTNET_NOTICE } from "./copy.js";
 import { getJson } from "./fetch.js";
 import { isResolved, midOf, minOrderOf, outcomeOf, quoteOf, stateNameV1, statusOf } from "./listing.js";
 import { smiFooter, stripPrices, summarizeLatest } from "./smi.js";
@@ -11,7 +11,7 @@ import { runWithTool } from "./telemetry.js";
 import { registerWriteTools } from "./write-tools.js";
 import { registerPerpsTools } from "./perps-tools.js";
 import { fetchRules, RULES_SOURCE, type IndexerRule } from "./rules.js";
-import { apiTrading, apiTradingAll, chainRowRefusal, chainTrading, interpretUpstreamMarketError, tradingRefusal, type Trading } from "./trading.js";
+import { apiTrading, apiTradingAll, chainRowRefusal, chainTrading, fetchLaunchCaps, interpretUpstreamMarketError, tradingRefusal, type LaunchCaps, type Trading } from "./trading.js";
 
 export const INSTRUCTIONS = [
   "SMX by Space Markets, testnet only (Base Sepolia, chain id 84532). Two separate products:",
@@ -41,7 +41,10 @@ const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, o
 
 const SMI_SECTIONS = ["launch_access", "compute_energy", "connectivity_data", "spectrum_filings", "moon_deep_space"] as const;
 
-function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), trading?: Trading | null, rules?: Map<string, IndexerRule>) {
+/** Live reads behind the market tools. Tests replace these; production calls the chain. */
+export const serverReads = { allMarkets, bookDepth };
+
+function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), trading?: Trading | null, rules?: Map<string, IndexerRule>, caps?: LaunchCaps | null) {
   const rule = rules?.get(r.marketId);
   const q = quoteOf(r.bestBid, r.bestAsk);
   const mid = midOf(r);
@@ -68,6 +71,7 @@ function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), tradin
     resolutionDate: r.resolutionDate ? new Date(r.resolutionDate * 1000).toISOString() : null,
     // open | closed | halted. Orders are refused unless open (SMX enforces close time and halts off-chain).
     trading: trading ?? chainTrading(r, nowSec * 1000),
+    ...(caps ? { launchCaps: { enabled: caps.enabled, walletUsdc: caps.walletUsdc, marketOiUsdc: caps.marketOiUsdc } } : {}),
     orderBook: r.bookAddr,
     market: r.marketAddr,
     registry: r.registry,
@@ -77,7 +81,7 @@ function marketView(r: MarketRow, nowSec = Math.floor(Date.now() / 1000), tradin
 }
 
 async function findMarket(id: string): Promise<MarketRow | undefined> {
-  return pickMarket(await allMarkets(), id);
+  return pickMarket(await serverReads.allMarkets(), id);
 }
 
 export function createServer(): McpServer {
@@ -159,19 +163,19 @@ export function createServer(): McpServer {
     {
       title: "SMX: list markets",
       description:
-        "List SMX event markets live on Base Sepolia testnet, read from every configured on-chain MarketRegistry (SMX_REGISTRIES) and de-duplicated by market id. Same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents), minimum order, rules link and short rules text. Free, no key. Test USDC, no monetary value.",
+        "List SMX event markets live on Base Sepolia testnet, read from every configured on-chain MarketRegistry (SMX_REGISTRIES) and de-duplicated by market id. Same listing rules as the SMX agent API. Per market: id, title, state (Open/Resolved), status, outcome, best bid and ask, YES midpoint in basis points (5000 = 50 cents), minimum order, rules link and short rules text. When launch caps are enabled, each market includes launchCaps. Limits are applied by the SMX app and API, not on chain. Free, no key. Test USDC, no monetary value.",
       inputSchema: { include_unlisted: z.boolean().optional().describe("Also return drills, superseded versions and other unlisted registry entries, with the reason.") },
       annotations: { ...RO, title: "SMX markets" },
     },
     async ({ include_unlisted }) => {
       try {
         const rulesP = fetchRules().catch(() => new Map<string, IndexerRule>());
-        const rows = await allMarkets();
+        const rows = await serverReads.allMarkets();
         const nowSec = Math.floor(Date.now() / 1000);
         // Internal engineering markets are never shown, even with include_unlisted.
         const visible = rows.filter((r) => r.listing.listed || r.listing.excludedReason !== "internal-codename");
-        const [trading, rules] = await Promise.all([apiTradingAll(), rulesP]);
-        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId), rules));
+        const [trading, rules, caps] = await Promise.all([apiTradingAll(), rulesP, fetchLaunchCaps()]);
+        const markets = visible.filter((r) => include_unlisted || r.listing.listed).map((r) => marketView(r, nowSec, trading.get(r.marketId), rules, caps));
         const read = registryReadStatus();
         const data = { markets, count: markets.length, registryCount: rows.length, hiddenInternal: rows.length - visible.length, registries: read.registries, ...(read.errors.length ? { registryReadErrors: read.errors } : {}), source: `MarketRegistry ${read.registries.join(", ")} (Base Sepolia)`, liquidityNote: LIQUIDITY_NOTE, units: "Prices in basis points of 1 test USDC per share: 5000 = 50 cents.", ...common() };
         const line = markets.map((m) => `${m.id} (${m.status}${m.trading.status !== "open" ? `, trading ${m.trading.status}` : ""}${m.yesPriceBps !== null ? `, YES ${m.yesPriceCents}c` : ""}${m.outcome ? `, ${m.outcome}` : ""})`).join("; ");
@@ -187,7 +191,7 @@ export function createServer(): McpServer {
     {
       title: "SMX: market detail and order book",
       description:
-        "One SMX testnet market: question, state, outcome if resolved, best bid and ask, YES midpoint, minimum order, rules link and short rules text, contract addresses and the resting order book aggregated by price level (read from chain). Free, no key. Test USDC, no monetary value.",
+        "One SMX testnet market: question, state, outcome if resolved, best bid and ask, YES midpoint, minimum order, rules link and short rules text, contract addresses and the resting order book aggregated by price level (read from chain). When launch caps are enabled, the result includes launchCaps. Limits are applied by the SMX app and API, not on chain. Free, no key. Test USDC, no monetary value.",
       inputSchema: { id: z.string().min(1).max(64).describe("Market id from smx_list_markets, e.g. moon-race-us-china-test-v2.") },
       annotations: { ...RO, title: "SMX market detail" },
     },
@@ -196,10 +200,10 @@ export function createServer(): McpServer {
         const rulesP = fetchRules().catch(() => new Map<string, IndexerRule>());
         const r = await findMarket(id);
         if (!r) return fail("Unknown market id. Call smx_list_markets for valid ids.");
-        const depth = isResolved(r) || !r.nextOrderId ? { bids: [], asks: [], activeOrdersScanned: 0 } : await bookDepth(r.bookAddr, r.nextOrderId);
-        const [trading, rules] = await Promise.all([apiTrading(r.marketId), rulesP]);
+        const depth = isResolved(r) || !r.nextOrderId ? { bids: [], asks: [], activeOrdersScanned: 0 } : await serverReads.bookDepth(r.bookAddr, r.nextOrderId);
+        const [trading, rules, caps] = await Promise.all([apiTrading(r.marketId), rulesP, fetchLaunchCaps()]);
         const data = {
-          ...marketView(r, undefined, trading, rules),
+          ...marketView(r, undefined, trading, rules, caps),
           book: {
             ...depth,
             batchNonce: r.batchNonce ?? null,
@@ -274,6 +278,7 @@ export function createServer(): McpServer {
         tokens: "Order collateral is SMX test USDC (0x5882...c4E1). It has no monetary value.",
         links: { skill: LINKS.skill, llms: LINKS.llms, openapi: LINKS.openapi, app: LINKS.app },
         disabledApiRoutes: "POST /agent/order and /agent/cancel return 403 wallet_signed_only and are never charged.",
+        launchCaps: LAUNCH_CAPS_NOTE,
         tradingCutoff: "Do not submit orders on a market that is closed, paused, resolved, expired or halted (smx_get_market). Pass id here to check. The error names the state and the reason, for example market closed at <time> or market paused (market_closed, market_paused, market_resolved, market_expired; a halt is market_halted). Status: GET https://smx.space/agent/trading/{id}.",
         ...common(),
       };

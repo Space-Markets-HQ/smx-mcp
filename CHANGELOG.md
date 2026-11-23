@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `smx_build_order` checks launch caps (`GET /agent/caps/{marketId}/{wallet}`) after the trading cut-off. `allowed: false` returns `cap_exceeded` with `kind`, `limits` and `charged: false` and no transaction. Unreachable or 404 still builds the unsigned order and sets `capsUnknown: true`. When caps are enabled, `smx_list_markets` and `smx_get_market` include `launchCaps`. Limits are applied by the SMX app and API, not on chain.
+
 ## 0.2.3 — 2026-11-10
 - `smx_list_markets` and `smx_get_market` include a rules link and short rules text on every market: `rulesUrl` (`https://smx.space/app/markets/{id}`), `rules` (indexer `rules.summary`, otherwise `why`), `rulesHash`, `rulesClose` and `rulesSource`. `smx_get_market` also sets `links.rules`. The question prefers the indexer question, then the built-in question list.
 - Rules are read from `GET /v1/markets` on the SMX indexer (default `https://smx-indexer-preview.fly.dev`), cached for 60 seconds, with a 4 second timeout. If the indexer is down or slow, the tools still succeed and `rules`, `rulesHash` and `rulesClose` are null.

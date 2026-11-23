@@ -9,7 +9,7 @@ import { allMarkets, pickMarket, pub, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN, factoryFor } from "./config.js";
 import { configuredClose } from "./closes.js";
 import { getJson } from "./fetch.js";
-import { apiTrading, chainRowRefusal, chainTrading, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
+import { apiTrading, capsCheck, chainRowRefusal, chainTrading, tradingRefusal, type CapExceeded, type Trading, type TradingRefusal } from "./trading.js";
 
 export const FEE_RATE_BPS = 25n; // 0.25%, Account.FEE_RATE_BPS on chain
 export const PRICE_MAX = 10000n;
@@ -76,6 +76,12 @@ async function findRow(id: string): Promise<MarketRow | undefined> {
   return pickMarket(await allMarkets(), id);
 }
 
+/** Reads the builder uses. Tests replace these; production reads Base Sepolia and the caps API. */
+export const orderReads = {
+  findRow: (id: string) => findRow(id),
+  readContract: (args: Parameters<typeof pub.readContract>[0]) => pub.readContract(args),
+};
+
 /** Trading status for building orders: SMX API, else closes config, else chain. */
 export async function tradingFor(id: string, row: MarketRow | undefined, nowMs = Date.now()): Promise<Trading> {
   const api = await apiTrading(id);
@@ -93,23 +99,29 @@ export function factoryOf(row: { registry?: string }): Address {
 
 export async function accountState(wallet: Address, factory: Address = getAddress(CONTRACTS.factory)) {
   const [access, account] = await Promise.all([
-    pub.readContract({ address: factory, abi: factoryAbi, functionName: "access", args: [wallet] }) as Promise<number>,
-    pub.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [wallet] }) as Promise<Address>,
+    orderReads.readContract({ address: factory, abi: factoryAbi, functionName: "access", args: [wallet] }) as Promise<number>,
+    orderReads.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [wallet] }) as Promise<Address>,
   ]);
   return { factory, access: Number(access), account: account && account !== ZERO ? getAddress(account) : null };
 }
 
 export type BuildOrderInput = { id: string; outcome: "Yes" | "No"; action: "buy" | "sell"; qty: number; limitPrice: number; wallet: string; mintTestUsdc?: boolean };
 
-export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; err: BuildError | TradingRefusal }> {
+export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; err: BuildError | TradingRefusal | Omit<CapExceeded, "ok"> }> {
   const bad = validateOrder(inp.qty, inp.limitPrice);
   if (bad) return { ok: false, err: bad };
   const wallet = getAddress(inp.wallet);
-  const row = await findRow(inp.id);
+  const row = await orderReads.findRow(inp.id);
   if (!row) return { ok: false, err: { error: "unknown_market", message: "Unknown market id. Call smx_list_markets for valid ids." } };
   const trading = await tradingFor(inp.id, row);
   const refused = tradingRefusal(inp.id, trading) ?? chainRowRefusal(inp.id, row);
   if (refused) return { ok: false, err: refused };
+  const side = inp.outcome === "Yes" ? "yes" : "no";
+  const caps = await capsCheck(inp.id, wallet, side, inp.limitPrice, inp.qty);
+  if (!caps.ok) {
+    const { ok: _ignored, ...err } = caps;
+    return { ok: false, err };
+  }
 
   const m = orderMath(inp.outcome, inp.action, inp.qty, inp.limitPrice);
   if (row.minOrderQty !== undefined && inp.qty < row.minOrderQty) return { ok: false, err: { error: "below_min_size", message: `Minimum order is ${row.minOrderQty} shares.` } };
@@ -127,10 +139,10 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
     txs.push(tx("deployAccount", factory, encodeFunctionData({ abi: factoryAbi, functionName: "deployAccount" }), GAS.deployAccount, "Creates your own SMX Account (about 2.8M gas). Read Factory.accountOf(wallet) afterwards, then call smx_build_order again for exact funding."));
   } else {
     const [avail, reserved, curMkt, after] = await Promise.all([
-      pub.readContract({ address: account, abi: accountAbi, functionName: "availableBalance" }) as Promise<bigint>,
-      pub.readContract({ address: account, abi: accountAbi, functionName: "reserved" }) as Promise<bigint>,
-      pub.readContract({ address: account, abi: accountAbi, functionName: "reservedByMarket", args: [idBytes32(inp.id)] }) as Promise<bigint>,
-      pub.readContract({ address: row.bookAddr, abi: obAbi, functionName: "previewSubmit", args: [account, m.userSide, m.userPrice, BigInt(inp.qty)] }).catch(() => null) as Promise<bigint | null>,
+      orderReads.readContract({ address: account, abi: accountAbi, functionName: "availableBalance" }) as Promise<bigint>,
+      orderReads.readContract({ address: account, abi: accountAbi, functionName: "reserved" }) as Promise<bigint>,
+      orderReads.readContract({ address: account, abi: accountAbi, functionName: "reservedByMarket", args: [idBytes32(inp.id)] }) as Promise<bigint>,
+      orderReads.readContract({ address: row.bookAddr, abi: obAbi, functionName: "previewSubmit", args: [account, m.userSide, m.userPrice, BigInt(inp.qty)] }).catch(() => null) as Promise<bigint | null>,
     ]);
     freeMicro = avail > reserved ? avail - reserved : 0n;
     if (after !== null) escrowMicro = after > curMkt ? after - curMkt : 0n;
@@ -140,11 +152,11 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
   const shortfall = needMicro > freeMicro ? needMicro - freeMicro : 0n;
   if (shortfall > 0n) {
     const spender = account;
-    const walletUsdc = (await pub.readContract({ address: CONTRACTS.testUsdcCollateral, abi: usdcAbi, functionName: "balanceOf", args: [wallet] })) as bigint;
+    const walletUsdc = (await orderReads.readContract({ address: CONTRACTS.testUsdcCollateral, abi: usdcAbi, functionName: "balanceOf", args: [wallet] })) as bigint;
     if (walletUsdc < shortfall && inp.mintTestUsdc !== false)
       txs.push(tx("mintTestUsdc", CONTRACTS.testUsdcCollateral, encodeFunctionData({ abi: usdcAbi, functionName: "mint", args: [wallet, shortfall - walletUsdc] }), GAS.mint, "SMX test USDC (no value)."));
     if (spender) {
-      const allowance = (await pub.readContract({ address: CONTRACTS.testUsdcCollateral, abi: usdcAbi, functionName: "allowance", args: [wallet, spender] })) as bigint;
+      const allowance = (await orderReads.readContract({ address: CONTRACTS.testUsdcCollateral, abi: usdcAbi, functionName: "allowance", args: [wallet, spender] })) as bigint;
       if (allowance < shortfall) txs.push(tx("approve", CONTRACTS.testUsdcCollateral, encodeFunctionData({ abi: usdcAbi, functionName: "approve", args: [spender, shortfall] }), GAS.approve, "Lets your own Account pull the deposit."));
       txs.push(tx("deposit", spender, encodeFunctionData({ abi: accountAbi, functionName: "deposit", args: [shortfall] }), GAS.deposit));
     }
@@ -158,6 +170,7 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
       order: { outcome: inp.outcome, action: inp.action, qty: inp.qty, limitPriceCents: inp.limitPrice, userSide: m.userSide, userPriceBps: Number(m.userPrice), internalSide: m.internalSide, internalPriceBps: m.internalPriceBps },
       costs: { escrowMicroUsdc: escrowMicro.toString(), maxFeeMicroUsdc: m.maxFeeMicro.toString(), feeRule: "0.25% (Account.FEE_RATE_BPS = 25) x shares x the other side's price, charged at claim at the clear price", freeBalanceMicroUsdc: freeMicro.toString(), depositMicroUsdc: shortfall.toString() },
       trading: { status: trading.status, closeAt: trading.closeAt, source: trading.source },
+      capsUnknown: caps.capsUnknown,
       transactions: txs,
       complete: Boolean(account),
       signing: "Unsigned. Sign and send each transaction in order from your own wallet on Base Sepolia (84532). This server never signs or holds keys.",
@@ -172,10 +185,10 @@ export function idBytes32(id: string): Hex {
 
 /** Fills (batch>=1) with filledQty > 0 for these order ids. */
 async function fillsOf(book: Address, orderIds: number[]) {
-  const nonce = Number(await pub.readContract({ address: book, abi: obAbi, functionName: "batchNonce" }));
+  const nonce = Number(await orderReads.readContract({ address: book, abi: obAbi, functionName: "batchNonce" }));
   const out: Array<{ orderId: number; batchNonce: number; filledQty: string }> = [];
   for (const id of orderIds) for (let n = 1; n <= nonce; n++) {
-    const r = (await pub.readContract({ address: book, abi: obAbi, functionName: "fills", args: [BigInt(id), BigInt(n)] }).catch(() => null)) as readonly [Address, bigint] | null;
+    const r = (await orderReads.readContract({ address: book, abi: obAbi, functionName: "fills", args: [BigInt(id), BigInt(n)] }).catch(() => null)) as readonly [Address, bigint] | null;
     if (r && r[1] > 0n) out.push({ orderId: id, batchNonce: n, filledQty: r[1].toString() });
   }
   return out;
@@ -214,7 +227,7 @@ export async function buildCancel(inp: { id: string; wallet: string; orderId: nu
   if (!row) return { ok: false as const, err: { error: "unknown_market", message: "Unknown market id." } };
   const { account } = await accountState(wallet, factoryOf(row));
   if (!account) return { ok: false as const, err: { error: "no_account", message: "This wallet has no SMX Account." } };
-  const o = (await pub.readContract({ address: row.bookAddr, abi: obAbi, functionName: "orders", args: [BigInt(inp.orderId)] })) as readonly [Address, bigint, bigint, bigint];
+  const o = (await orderReads.readContract({ address: row.bookAddr, abi: obAbi, functionName: "orders", args: [BigInt(inp.orderId)] })) as readonly [Address, bigint, bigint, bigint];
   if (o[1] === 0n) return { ok: false as const, err: { error: "order_not_open", message: `Order ${inp.orderId} is not resting (filled, cancelled or unknown).` } };
   if (getAddress(o[0]) !== account) return { ok: false as const, err: { error: "not_order_owner", message: `Order ${inp.orderId} belongs to ${o[0]}, not your Account ${account}.` } };
   // Stranded-fill rule: claim every unclaimed fill first, in the same sequence.

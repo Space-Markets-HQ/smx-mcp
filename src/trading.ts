@@ -154,3 +154,78 @@ export function interpretUpstreamMarketError(body: unknown): { error: string; co
   const reason = reasonFor(state, at, paren);
   return { error: code, code, state, reason, message: reason, ...(raw && raw !== reason ? { detail: raw } : {}) };
 }
+
+/** Caps reads are short: the endpoints are not deployed everywhere yet, and a miss must not stall an order. */
+export const CAPS_TIMEOUT_MS = 4_000;
+
+export type LaunchCaps = { enabled: true; walletUsdc: number; marketOiUsdc: number };
+export type CapKind = "wallet" | "market_oi";
+export type CapLimits = { walletUsdc: number; marketOiUsdc: number };
+
+export type CapsProceed = { ok: true; capsUnknown: boolean };
+export type CapExceeded = {
+  ok: false;
+  error: "cap_exceeded";
+  kind: CapKind | null;
+  limits: CapLimits;
+  charged: false;
+  message: string;
+};
+
+export const capsCollectionUrl = () => `${SMX_API}/agent/caps`;
+
+export function capsCheckUrl(marketId: string, wallet: string, side: "yes" | "no", price: number, qty: number): string {
+  const q = new URLSearchParams({ side, price: String(price), qty: String(qty) });
+  return `${SMX_API}/agent/caps/${encodeURIComponent(marketId)}/${encodeURIComponent(wallet)}?${q}`;
+}
+
+function finiteNum(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function capMessage(kind: CapKind | null): string {
+  const what = kind === "wallet" ? "wallet limit" : kind === "market_oi" ? "market open-interest limit" : "launch cap";
+  return `This order would exceed the ${what}. Limits are applied by the SMX app and API, not on chain. Nothing was charged.`;
+}
+
+/** GET /agent/caps. Null when caps are off, the payload is not the contract, or the API cannot be reached. */
+export async function fetchLaunchCaps(): Promise<LaunchCaps | null> {
+  try {
+    const r = await getJson(capsCollectionUrl(), CAPS_TIMEOUT_MS);
+    if (r.status !== 200 || !r.body || typeof r.body !== "object") return null;
+    const j = r.body as Record<string, unknown>;
+    const walletUsdc = finiteNum(j.walletUsdc);
+    const marketOiUsdc = finiteNum(j.marketOiUsdc);
+    if (j.enabled !== true || walletUsdc === null || marketOiUsdc === null) return null;
+    return { enabled: true, walletUsdc, marketOiUsdc };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Per-order launch cap. Unreachable, 404, or any body that is not the contract: proceed with capsUnknown.
+ * allowed false: typed cap_exceeded and the caller must not build calldata. charged is always false.
+ */
+export async function capsCheck(marketId: string, wallet: string, side: "yes" | "no", price: number, qty: number): Promise<CapsProceed | CapExceeded> {
+  const unknown = (): CapsProceed => ({ ok: true, capsUnknown: true });
+  try {
+    const r = await getJson(capsCheckUrl(marketId, wallet, side, price, qty), CAPS_TIMEOUT_MS);
+    if (r.status !== 200 || !r.body || typeof r.body !== "object") return unknown();
+    const j = r.body as Record<string, unknown>;
+    if (typeof j.enabled !== "boolean" || typeof j.allowed !== "boolean") return unknown();
+    if (j.enabled === false || j.allowed === true) return { ok: true, capsUnknown: false };
+    const kind = j.kind === "wallet" || j.kind === "market_oi" ? j.kind : null;
+    const limitsObj = j.limits && typeof j.limits === "object" ? (j.limits as Record<string, unknown>) : {};
+    return {
+      ok: false,
+      error: "cap_exceeded",
+      kind,
+      limits: { walletUsdc: finiteNum(limitsObj.walletUsdc) ?? 0, marketOiUsdc: finiteNum(limitsObj.marketOiUsdc) ?? 0 },
+      charged: false,
+      message: capMessage(kind),
+    };
+  } catch {
+    return unknown();
+  }
+}

@@ -8,6 +8,12 @@ export const LIQUIDITY_NOTE = "Quotes are thin. Most resting orders currently co
 export const NO_TRADING_NOTE =
   "This MCP server never signs, sends or holds keys and never resolves markets. smx_build_order, smx_build_cancel and smx_build_claim (and perps_build_order) return UNSIGNED Base Sepolia transactions that you sign and send from your own wallet; see smx_trading_guide.";
 
+/**
+ * Launch caps are off-chain. Same paragraph in the README and in smx_trading_guide (the skill steps this server returns).
+ */
+export const LAUNCH_CAPS_NOTE =
+  "Launch caps, a per-wallet limit and a per-market open-interest limit, are applied by the SMX app and the SMX API, not on chain. The Base Sepolia contracts do not enforce them. smx_build_order checks the caps API after the trading cut-off and, when the order is not allowed, returns cap_exceeded with kind, limits and charged false and no transaction. If the caps API is unreachable or returns 404, the unsigned order is still built and capsUnknown is true. When caps are enabled, smx_list_markets and smx_get_market include launchCaps (enabled, walletUsdc, marketOiUsdc).";
+
 /** Stranded-fill rule (v1 contracts). Same rule as skill.md step 7 and the SMX unclaimed-fill guard. */
 export const STRANDED_FILL_RULE =
   "Never cancel an order that has an unclaimed fill. On the current SMX testnet contracts, cancelling an order with an unclaimed fill forfeits that fill. Check orderBook.fills(orderId, n) for every batch n up to orderBook.batchNonce(); if any filledQty > 0, call orderBook.claim(orderId, n) first. Use smx_check_cancel_safety before any cancel.";
