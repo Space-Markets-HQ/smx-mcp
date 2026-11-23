@@ -47,17 +47,19 @@ Stdio from the install above, instead of the hosted endpoint: `"command": "npx"`
 |---|---|---|
 | `smi_get_latest` | free | Latest SMI print: headline (SMI Launch Cadence + formula) and a one-line summary per sub-index; `sub_index` returns one in full |
 | `smi_get_methodology` | free | SMI methodology: version, change log, conflicts statement, headline formula, counting rules |
-| `smx_list_markets` | free | SMX markets live on testnet, read from every configured Base Sepolia MarketRegistry and de-duplicated by id (same listing rules as the agent API): state, status, outcome, bid/ask, YES midpoint, minimum order, rules link and short rules text |
-| `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links, rules link and short rules text |
+| `smx_list_markets` | free | SMX markets live on testnet, read from every configured Base Sepolia MarketRegistry and de-duplicated by id: state, status (`open`, `overdue`, `resolved`), `displayLabel`, `dueBy`, `hoursOverdue`, outcome, bid/ask, YES midpoint, minimum order, rules link and short rules text |
+| `smx_get_market` | free | One market plus the resting order book aggregated by price level, contracts, links, rules link and short rules text, and the same overdue fields as the list |
 | `smx_trading_guide` | free | How to trade from your own wallet: steps, addresses, order rules, the claim-before-cancel rule |
 | `smx_check_cancel_safety` | free | Unclaimed-fill check for your order ids (`fills(orderId, n)` for every batch, plus a `claim` simulation). `safeToCancel=false` means do not cancel |
-| `smx_build_order` | free | UNSIGNED transactions to place a limit order from your own wallet: access request, Account deploy, test USDC mint, approve, deposit, submitOrder, all against the Factory for that market's registry |
+| `smx_build_order` | free | UNSIGNED transactions to place a limit order from your own wallet: access request, Account deploy, test USDC mint, approve, deposit, submitOrder, all against the Factory for that market's registry. Refuses an overdue book |
 | `smx_build_claim` | free | UNSIGNED `claim(orderId, batchNonce)` transactions for your unclaimed fills in one market |
 | `smx_build_cancel` | free | UNSIGNED cancel of a resting order, with claims for any unclaimed fills first |
 
 **Two deployments.** Each MarketRegistry has its own Factory, and an SMX Account only trades books in its own Factory's registry (otherwise `NotMarket()`, `0xc4bbea69`). Legacy registry `0x8F3B…Da4a` uses Factory `0x409c…b28a`; the launch registry `0xcD29…4AcD` (the Starship launch books) uses Factory `0x1F13…E214`. The build tools pick the right one; one wallet can hold an Account on each.
 
 The tools never change chain state themselves: build tools only return unsigned transactions. All tools are annotated `readOnlyHint: true` and return `structuredContent` plus a one-line text summary.
+
+A market with no outcome stays listed when its trading end or its resolution date has passed. An overdue version does not replace a version that is still before its resolution date. Trading end is enforced by the SMX app and API. The v1 contracts have no trading end, and nothing is hidden on a timer. `smx_list_markets` and `smx_get_market` then set `status` to `overdue`, `displayLabel` and `displayStatus` to `Overdue: awaiting resolution`, `dueBy` to the API or indexer `dueBy` when that field is present and otherwise the resolution date, and `hoursOverdue` counted from `dueBy`. `smx_trading_guide` and `smx_build_order` refuse that book with `market_closed` and the message `Overdue: awaiting resolution`. Drills, malformed ids, internal test markets, books that have never traded, and superseded versions stay unlisted.
 
 ### Perps (testnet, Base Sepolia, MockUSDC)
 `perps_list_markets`, `perps_quote`, `perps_build_order`, `perps_positions`, `perps_account`. These proxy the SMX perps API (`SMX_PERPS_API`, default `https://smx-perps-preview.fly.dev/perps/v0`) and cover all markets on both engines, including PERP-XRAY and the countdowns. They return UNSIGNED transactions only, plus `reduce_only` status and machine-readable error `code`s. Sign them with your own wallet.

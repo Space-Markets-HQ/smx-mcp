@@ -4,8 +4,10 @@
  * If the API cannot be reached, fall back to the chain: closed once resolved or at resolutionDate
  * (halt state unknown, reported as such).
  */
+import { configuredClose } from "./closes.js";
 import { SMX_API } from "./config.js";
 import { getJson } from "./fetch.js";
+import { marketPresentation, OVERDUE_LABEL, type MarketPresentation } from "./listing.js";
 
 export type TradingStatus = "open" | "closed" | "halted";
 export type MarketState = "closed" | "paused" | "resolved" | "expired";
@@ -13,6 +15,8 @@ export type Trading = {
   status: TradingStatus;
   open: boolean;
   closeAt: string | null;
+  /** API dueBy when the trading payload includes it. Absent on the chain fallback. */
+  dueBy?: string | null;
   halted: { reason: string; haltedAt: string } | null;
   source: "smx-api" | "chain (SMX API unreachable; halt state unknown)";
   /** Set from chain state when that is more specific than open/closed/halted. */
@@ -21,14 +25,19 @@ export type Trading = {
 
 export const tradingUrl = (id?: string) => `${SMX_API}/agent/trading${id ? `/${encodeURIComponent(id)}` : ""}`;
 
+function dueByOf(j: Record<string, unknown>): string | null {
+  return typeof j.dueBy === "string" && j.dueBy.trim() ? j.dueBy.trim() : null;
+}
+
 function fromApi(b: unknown): Trading | null {
   if (!b || typeof b !== "object") return null;
   const j = b as Record<string, unknown>;
+  const dueBy = dueByOf(j);
   // "paused" stays status "halted" so a non-open market is unchanged for readers; the refusal names it paused.
-  if (j.status === "paused") return { status: "halted", open: false, closeAt: typeof j.closeAt === "string" ? j.closeAt : null, halted: { reason: "paused", haltedAt: String((j.paused as { pausedAt?: string } | null)?.pausedAt ?? "") }, source: "smx-api" };
+  if (j.status === "paused") return { status: "halted", open: false, closeAt: typeof j.closeAt === "string" ? j.closeAt : null, dueBy, halted: { reason: "paused", haltedAt: String((j.paused as { pausedAt?: string } | null)?.pausedAt ?? "") }, source: "smx-api" };
   if (j.status !== "open" && j.status !== "closed" && j.status !== "halted") return null;
   const h = j.halted as Trading["halted"];
-  return { status: j.status, open: j.status === "open", closeAt: typeof j.closeAt === "string" ? j.closeAt : null, halted: h && typeof h === "object" ? h : null, source: "smx-api" };
+  return { status: j.status, open: j.status === "open", closeAt: typeof j.closeAt === "string" ? j.closeAt : null, dueBy, halted: h && typeof h === "object" ? h : null, source: "smx-api" };
 }
 
 /** Chain-only fallback. Resolved and past-resolution markets stay status "closed" and also set `unavailable`. */
@@ -86,6 +95,52 @@ export type TradingRefusal = {
   halted: Trading["halted"];
   source: Trading["source"];
 };
+
+export type OverdueRule = { dueBy?: string | null; close?: string | null };
+
+/** The same overdue view smx_list_markets uses, for one chain row plus the feeds the builder already has. */
+export function presentationFor(
+  id: string,
+  row: { state?: number; resolved?: boolean; resolutionDate?: number },
+  trading: Trading | null | undefined,
+  rule: OverdueRule | null | undefined,
+  nowMs = Date.now(),
+): MarketPresentation {
+  const fromApi = trading?.source === "smx-api" ? trading : null;
+  return marketPresentation(row, {
+    nowMs,
+    api: fromApi ? { status: fromApi.status, closeAt: fromApi.closeAt, dueBy: fromApi.dueBy ?? null } : null,
+    indexerDueBy: rule?.dueBy ?? null,
+    indexerTradingEnd: rule?.close ?? null,
+    configuredCloseAt: fromApi ? null : configuredClose(id),
+  });
+}
+
+/**
+ * Refuse an overdue book: no outcome, and the trading end or the resolution date has passed.
+ * Trading end is enforced by the SMX app and API. null when the book is not overdue.
+ */
+export function overdueBookRefusal(
+  id: string,
+  row: { state?: number; resolved?: boolean; resolutionDate?: number } | null | undefined,
+  trading: Trading | null | undefined,
+  rule: OverdueRule | null | undefined,
+  nowMs = Date.now(),
+): TradingRefusal | null {
+  if (!row) return null;
+  const pres = presentationFor(id, row, trading, rule, nowMs);
+  if (!pres.overdue) return null;
+  return {
+    error: "market_closed",
+    state: "closed",
+    reason: OVERDUE_LABEL,
+    marketId: id,
+    message: OVERDUE_LABEL,
+    closeAt: (trading?.source === "smx-api" ? trading.closeAt : null) ?? pres.dueBy,
+    halted: null,
+    source: trading?.source ?? "chain (SMX API unreachable; halt state unknown)",
+  };
+}
 
 /** null = market open for orders; else the refusal, with state and reason. */
 export function tradingRefusal(id: string, t: Trading): TradingRefusal | null {

@@ -1,12 +1,12 @@
 /**
  * Listing policy, status and unit helpers. Vendored from the SMX agent API (smx-agent-api src/listing.ts,
- * 2026-09-30) so the MCP market list matches GET /agent/markets exactly, computed from chain state only.
- * Keep in sync with the agent API until it is published as a shared package.
+ * 2026-09-30). Chain state decides the list. A market is never hidden because a timer has passed:
+ * trading end is enforced by the SMX app and API, and an unresolved market stays listed.
  */
 export const PRICE_MAX_BPS = 10000;
 export const NO_ASK = 10001;
-export const STALE_UNRESOLVED_GRACE_SEC = 7 * 24 * 3600;
 export const MARKET_STATE_V1 = ["Open", "Resolved"] as const;
+export const OVERDUE_LABEL = "Overdue: awaiting resolution" as const;
 
 export type Outcome = "YES" | "NO" | "SPLIT";
 export type ChainMarket = {
@@ -23,10 +23,11 @@ export type ChainMarket = {
   minOrderCollateralRaw?: number;
   nextOrderId?: number;
 };
-export type MarketStatus = "open" | "awaiting_resolution" | "resolved";
+export type MarketStatus = "open" | "overdue" | "resolved";
+export type DisplayLabel = "Open" | "Trading closed" | typeof OVERDUE_LABEL | "Resolved";
 
 export const stateNameV1 = (s: number) => MARKET_STATE_V1[s] ?? `Unknown(${s})`;
-export const isResolved = (m: ChainMarket) => m.state === 1 || m.resolved === true;
+export const isResolved = (m: { state?: number; resolved?: boolean }) => m.state === 1 || m.resolved === true;
 
 export function outcomeOf(m: ChainMarket): Outcome | null {
   if (!isResolved(m) || m.finalPrice === undefined) return null;
@@ -37,8 +38,89 @@ export function outcomeOf(m: ChainMarket): Outcome | null {
 
 export function statusOf(m: ChainMarket, nowSec: number): MarketStatus {
   if (isResolved(m)) return "resolved";
-  if (m.resolutionDate && m.resolutionDate <= nowSec) return "awaiting_resolution";
+  if (m.resolutionDate && m.resolutionDate <= nowSec) return "overdue";
   return "open";
+}
+
+export type PresentationFeed = {
+  nowMs: number;
+  /** Set only when GET /agent/trading returned a record. That record wins over config and the indexer. */
+  api: { status: "open" | "closed" | "halted"; closeAt: string | null; dueBy: string | null } | null;
+  indexerDueBy: string | null;
+  /** rules.close, otherwise the indexer tradingEnd. */
+  indexerTradingEnd: string | null;
+  /** SMX_MARKET_CLOSES_JSON / built-in close. Used only when the API did not answer. */
+  configuredCloseAt: string | null;
+};
+
+export type MarketPresentation = {
+  overdue: boolean;
+  status: MarketStatus;
+  displayLabel: DisplayLabel;
+  /** Same string as displayLabel. */
+  displayStatus: DisplayLabel;
+  /** API dueBy, else indexer dueBy, else the resolution date. Null when none of those exist. */
+  dueBy: string | null;
+  /** Hours since dueBy when overdue, otherwise 0. */
+  hoursOverdue: number;
+};
+
+function asIso(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const t = Date.parse(v);
+  if (Number.isNaN(t)) return null;
+  return new Date(t).toISOString();
+}
+
+function firstIso(...values: Array<string | null | undefined>): string | null {
+  for (const v of values) {
+    const iso = asIso(v);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function isoInPast(v: string | null | undefined, nowMs: number): boolean {
+  const iso = asIso(v);
+  return iso !== null && Date.parse(iso) <= nowMs;
+}
+
+/** Hours from dueBy to now, one decimal, never negative. */
+export function hoursSince(iso: string | null, nowMs: number): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t) || t >= nowMs) return 0;
+  return Math.round(((nowMs - t) / 3_600_000) * 10) / 10;
+}
+
+/**
+ * overdue = no outcome, and (trading end passed OR resolution date passed).
+ * Trading end is enforced by the SMX app and API, not by the v1 contracts.
+ * hoursOverdue is counted from dueBy.
+ */
+export function marketPresentation(
+  m: { state?: number; resolved?: boolean; resolutionDate?: number },
+  feed: PresentationFeed,
+): MarketPresentation {
+  const nowSec = Math.floor(feed.nowMs / 1000);
+  const resolutionIso = m.resolutionDate ? new Date(m.resolutionDate * 1000).toISOString() : null;
+  const dueBy = firstIso(feed.api?.dueBy, feed.indexerDueBy, resolutionIso);
+  const resolved = isResolved(m);
+  const resolutionPassed = Boolean(m.resolutionDate && m.resolutionDate <= nowSec);
+  const tradingEndPassed = feed.api
+    ? feed.api.status === "closed" || isoInPast(feed.api.closeAt, feed.nowMs)
+    : isoInPast(feed.configuredCloseAt, feed.nowMs) || isoInPast(feed.indexerTradingEnd, feed.nowMs);
+  const overdue = !resolved && (tradingEndPassed || resolutionPassed);
+  const hoursOverdue = overdue ? hoursSince(dueBy, feed.nowMs) : 0;
+  const displayLabel: DisplayLabel = resolved
+    ? "Resolved"
+    : overdue
+      ? OVERDUE_LABEL
+      : feed.api && feed.api.status !== "open"
+        ? "Trading closed"
+        : "Open";
+  const status: MarketStatus = resolved ? "resolved" : overdue ? "overdue" : "open";
+  return { overdue, status, displayLabel, displayStatus: displayLabel, dueBy, hoursOverdue };
 }
 
 export function quoteOf(bestBid: number, bestAsk: number) {
@@ -90,7 +172,7 @@ export function minOrderOf(m: ChainMarket) {
   };
 }
 
-export type ExcludedReason = "malformed-id" | "internal-codename" | "drill" | "never-traded" | "stale-unresolved" | "superseded";
+export type ExcludedReason = "malformed-id" | "internal-codename" | "drill" | "never-traded" | "superseded";
 export type ListingDecision = { listed: true } | { listed: false; excludedReason: ExcludedReason; detail: string };
 
 export function familyOf(id: string) {
@@ -134,7 +216,11 @@ export function dedupeMarkets<T extends DedupableMarket>(rows: readonly T[], reg
   return out;
 }
 
-/** Same rules, same order as the agent API (see its docs/markets-listing.md). */
+/**
+ * Same exclusion order as the agent API, except a market is never dropped for being past its
+ * resolution date or trading end (there is no stale-unresolved timer). An unresolved market
+ * past its resolution date is listed on its own and does not take the family slot.
+ */
 export function listingDecisions(rows: ChainMarket[], nowSec: number): Map<number, ListingDecision> {
   const out = new Map<number, ListingDecision>();
   const eligible: ChainMarket[] = [];
@@ -149,8 +235,10 @@ export function listingDecisions(rows: ChainMarket[], nowSec: number): Map<numbe
       out.set(r.index, { listed: false, excludedReason: "drill", detail: "operational resolve drill" });
     } else if (!isResolved(r) && r.nextOrderId === 0 && !LAUNCH_BOOK_ID.test(r.marketId)) {
       out.set(r.index, { listed: false, excludedReason: "never-traded", detail: "no order has ever been placed on this book" });
-    } else if (!isResolved(r) && r.resolutionDate && r.resolutionDate + STALE_UNRESOLVED_GRACE_SEC < nowSec) {
-      out.set(r.index, { listed: false, excludedReason: "stale-unresolved", detail: "still Open more than 7 days after its resolution date" });
+    } else if (!isResolved(r) && r.resolutionDate && r.resolutionDate <= nowSec) {
+      // No outcome and the resolution date has passed: stay listed, and do not take the
+      // family slot from a version that is still before its resolution date.
+      out.set(r.index, { listed: true });
     } else {
       eligible.push(r);
     }

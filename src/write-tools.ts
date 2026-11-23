@@ -17,7 +17,7 @@ export const WRITE_TOOL_DEFS = {
   smx_build_order: {
     title: "SMX: build an unsigned order",
     description:
-      "Builds UNSIGNED Base Sepolia transactions to place a limit order on an SMX testnet event market from your own wallet: Account.submitOrder on your own SMX Account, plus any needed Factory requestAccess/deployAccount, test USDC mint/approve and Account.deposit. Refuses a closed, paused, resolved, expired or halted market with a structured error that names the state and the reason. Fee 0.25%. Returns {to, data, value, chainId, gas} per step; sign them yourself in order. This server never signs or holds keys.",
+      "Builds UNSIGNED Base Sepolia transactions to place a limit order on an SMX testnet event market from your own wallet: Account.submitOrder on your own SMX Account, plus any needed Factory requestAccess/deployAccount, test USDC mint/approve and Account.deposit. Refuses a closed, paused, resolved, expired or halted market with a structured error that names the state and the reason. An overdue book (no outcome, and the trading end or the resolution date has passed) is refused with market_closed and the message Overdue: awaiting resolution. Trading end is enforced by the SMX app and API. Fee 0.25%. Returns {to, data, value, chainId, gas} per step; sign them yourself in order. This server never signs or holds keys.",
     inputSchema: {
       id: MID,
       outcome: z.enum(["Yes", "No"]).describe("Which outcome share."),

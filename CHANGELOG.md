@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unresolved markets stay listed after trading end and the resolution date. Nothing is hidden on a timer. `smx_list_markets` and `smx_get_market` add `status` `overdue`, `displayLabel` / `displayStatus` `Overdue: awaiting resolution`, `dueBy` (API or indexer `dueBy`, otherwise the resolution date) and `hoursOverdue` counted from `dueBy`. Trading end is enforced by the SMX app and API. Order tools refuse an overdue book with `market_closed` and the message `Overdue: awaiting resolution`.
+
 ## 0.2.3 — 2026-11-10
 - `smx_list_markets` and `smx_get_market` include a rules link and short rules text on every market: `rulesUrl` (`https://smx.space/app/markets/{id}`), `rules` (indexer `rules.summary`, otherwise `why`), `rulesHash`, `rulesClose` and `rulesSource`. `smx_get_market` also sets `links.rules`. The question prefers the indexer question, then the built-in question list.
 - Rules are read from `GET /v1/markets` on the SMX indexer (default `https://smx-indexer-preview.fly.dev`), cached for 60 seconds, with a 4 second timeout. If the indexer is down or slow, the tools still succeed and `rules`, `rulesHash` and `rulesClose` are null.

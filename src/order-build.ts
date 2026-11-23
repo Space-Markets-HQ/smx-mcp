@@ -9,7 +9,8 @@ import { allMarkets, pickMarket, pub, type MarketRow } from "./chain.js";
 import { CHAIN_ID, CONTRACTS, SMX_INDEXER, SMX_ORIGIN, factoryFor } from "./config.js";
 import { configuredClose } from "./closes.js";
 import { getJson } from "./fetch.js";
-import { apiTrading, chainRowRefusal, chainTrading, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
+import { fetchRules } from "./rules.js";
+import { apiTrading, chainRowRefusal, chainTrading, overdueBookRefusal, tradingRefusal, type Trading, type TradingRefusal } from "./trading.js";
 
 export const FEE_RATE_BPS = 25n; // 0.25%, Account.FEE_RATE_BPS on chain
 export const PRICE_MAX = 10000n;
@@ -76,6 +77,11 @@ async function findRow(id: string): Promise<MarketRow | undefined> {
   return pickMarket(await allMarkets(), id);
 }
 
+/** Chain lookup used by the order builder. Tests replace findRow; production reads Base Sepolia. */
+export const orderReads = {
+  findRow: (id: string) => findRow(id),
+};
+
 /** Trading status for building orders: SMX API, else closes config, else chain. */
 export async function tradingFor(id: string, row: MarketRow | undefined, nowMs = Date.now()): Promise<Trading> {
   const api = await apiTrading(id);
@@ -105,9 +111,11 @@ export async function buildOrder(inp: BuildOrderInput): Promise<{ ok: true; data
   const bad = validateOrder(inp.qty, inp.limitPrice);
   if (bad) return { ok: false, err: bad };
   const wallet = getAddress(inp.wallet);
-  const row = await findRow(inp.id);
+  const row = await orderReads.findRow(inp.id);
   if (!row) return { ok: false, err: { error: "unknown_market", message: "Unknown market id. Call smx_list_markets for valid ids." } };
-  const trading = await tradingFor(inp.id, row);
+  const [trading, rules] = await Promise.all([tradingFor(inp.id, row), fetchRules().catch(() => new Map())]);
+  const overdue = overdueBookRefusal(inp.id, row, trading, rules.get(inp.id) ?? null);
+  if (overdue) return { ok: false, err: overdue };
   const refused = tradingRefusal(inp.id, trading) ?? chainRowRefusal(inp.id, row);
   if (refused) return { ok: false, err: refused };
 
